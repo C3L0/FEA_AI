@@ -12,4 +12,5 @@ dependencies = [
     "seaborn>=0.13.2",
     "torch>=2.9.1",
     "torch-geometric>=2.7.0",
+    "torch-utils>=0.1.2",
 ]
