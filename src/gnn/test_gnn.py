@@ -4,6 +4,7 @@ import numpy as np
 from torch_geometric.data import Data
 from generate_data import analytical_cantilever, get_mesh_graph, NODES_X, NODES_Y
 from train_gnn import WoodStressGNN
+import os
 
 # Limite élastique du bois (ex: Pin) pour la rupture ~ 40 MPa
 RUPTURE_THRESHOLD_PA = 40e6 
@@ -94,7 +95,16 @@ def visualize_prediction():
                     fontsize=12, weight='bold', ha='center')
 
     plt.tight_layout()
-    plt.show()
+    #plt.show()
+    plt.savefig("../../visualization/gnn_prediction.png")
+    '''
+    # Sauvegarde de la figure dans le dossier 'visualization' du dossier parent
+    parent_dir = os.path.dirname(os.path.abspath(__file__))
+    save_dir = os.path.join(parent_dir, '..', 'visualization')
+    os.makedirs(save_dir, exist_ok=True)
+    plt.savefig(os.path.join(save_dir, "gnn_prediction.png"))
+    '''
+
 
 if __name__ == "__main__":
     visualize_prediction()

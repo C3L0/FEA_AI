@@ -8,7 +8,7 @@ import os
 # --- Configuration ---
 BATCH_SIZE = 32
 HIDDEN_CHANNELS = 64
-EPOCHS = 500
+EPOCHS = 100
 LR = 0.001
 MODEL_PATH = 'wood_gnn_model.pth'
 DATASET_PATH = 'wood_fem_dataset.pt'
@@ -92,8 +92,8 @@ def train():
     plt.ylabel("Loss")
     plt.grid(True, which="both", ls="-")
     plt.legend()
-    plt.savefig("training_loss.png")
-    print("Graphique 'training_loss.png' mis à jour.")
+    plt.savefig("../../visualization/training_loss_gnn.png")
+    print("Graphique 'training_loss_gnn.png' mis à jour.")
 
 if __name__ == "__main__":
     train()
