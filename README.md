@@ -1,6 +1,4 @@
-# FEA_AI
-
-Optimizing Finite Element Analysis (FEA) using Artificial Intelligence #PFE25-R-641  
+# Optimizing Finite Element Analysis (FEA) using Artificial Intelligence #PFE25-R-641  
 
 AI based FEA prediction  
 
