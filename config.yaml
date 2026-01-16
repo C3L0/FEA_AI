@@ -1,0 +1,28 @@
+# 1. Geometry Settings: Defines the physical beam dimensions
+
+geometry:
+  nx: 25           # Number of nodes along the length (X-axis)
+  ny: 5            # Number of nodes along the height (Y-axis)
+  length: 2.0      # Physical length of the beam in meters
+  height: 0.5      # Physical height of the beam in meters
+
+# 2. Model Architecture: Defines the shape of the Neural Network
+
+model:
+  hidden_dim: 64   # Size of the "math vectors" inside the GNN layers
+  layers: 25       # Number of times force messages are passed between nodes
+
+# 3. Training Hyperparameters: Controls how the model learns
+
+training:
+  epochs: 200             # How many times to see the entire dataset
+  batch_size: 32          # Number of simulations to look at simultaneously
+  learning_rate: 0.002    # Speed of optimization
+  data_weight: 1.0        # Importance of matching analytical data
+  physics_weight: 0.01    # Importance of Potential Energy constraint
+
+# 4. Environment: Setup for the computer running the code
+
+env:
+  device: "cuda"          # "cuda" for GPU or "cpu" for processor
+  save_path: "./models"   # Folder where the trained model will be stored
