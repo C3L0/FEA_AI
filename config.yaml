@@ -6,9 +6,15 @@ geometry:
   length: 2.0      # Physical length of the beam in meters
   height: 0.5      # Physical height of the beam in meters
 
+# 5. Material Properties
+material:
+  youngs_modulus_range: [10.0, 210.0] # GPa
+  poissons_ratio_range: [0.2, 0.45]
+
 # 2. Model Architecture: Defines the shape of the Neural Network
 
 model:
+  input_dim: 5     # [Fx, Fy, isFixed, E, nu]
   hidden_dim: 64   # Size of the "math vectors" inside the GNN layers
   layers: 25       # Number of times force messages are passed between nodes
 
