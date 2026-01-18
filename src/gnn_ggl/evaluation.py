@@ -1,67 +1,3 @@
-# import torch
-# import matplotlib.pyplot as plt
-# import numpy as np
-#
-# def visualize_gnn_results(model, dataset, device, sample_idx=0):
-#     model.eval()
-#
-#     # 1. Get Data
-#     # test_x: [Num_Nodes, 3] (Input features)
-#     # test_y_gt: [Num_Nodes, 2] (True displacements from analytical solver)
-#     test_x, test_y_gt = dataset[sample_idx]
-#
-#     # 2. Predict
-#     with torch.no_grad():
-#         # Add batch dim, send to device, then bring back to CPU and numpy
-#         pred_y = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
-#
-#     test_y_gt = test_y_gt.numpy()
-#     coords = dataset.coords
-#     edges = dataset.edge_index.cpu().numpy()
-#
-#     # 3. Calculate Euclidean Error per node
-#     # Error = sqrt((u_true - u_pred)^2 + (v_true - v_pred)^2)
-#     error = np.linalg.norm(test_y_gt - pred_y, axis=1)
-#
-#     # 4. Setup Plot
-#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-#     amp = 10.0 # Amplification factor
-#
-#     # --- TOP PLOT: WIREFRAME COMPARISON ---
-#     # Draw original (undeformed) mesh in light gray
-#     for i in range(edges.shape[1]):
-#         n1, n2 = edges[0, i], edges[1, i]
-#         ax1.plot([coords[n1,0], coords[n2,0]], [coords[n1,1], coords[n2,1]], 'gray', alpha=0.1, lw=0.5)
-#
-#     # Draw Ground Truth (Blue) and GNN Prediction (Red)
-#     gt_pos = coords + test_y_gt * amp
-#     pr_pos = coords + pred_y * amp
-#
-#     for i in range(edges.shape[1]):
-#         n1, n2 = edges[0, i], edges[1, i]
-#         ax1.plot([gt_pos[n1,0], gt_pos[n2,0]], [gt_pos[n1,1], gt_pos[n2,1]], 'b-', alpha=0.3, label='GT' if i==0 else "")
-#         ax1.plot([pr_pos[n1,0], pr_pos[n2,0]], [pr_pos[n1,1], pr_pos[n2,1]], 'r--', alpha=0.6, label='GNN' if i==0 else "")
-#
-#     ax1.set_title(f"Wireframe Comparison (Amplified {amp}x)")
-#     ax1.legend()
-#     ax1.axis('equal')
-#
-#     # --- BOTTOM PLOT: ERROR HEATMAP ---
-#     # This shows WHERE the model is failing
-#     scatter = ax2.scatter(pr_pos[:, 0], pr_pos[:, 1], c=error, cmap='viridis', s=30)
-#     plt.colorbar(scatter, ax=ax2, label="Absolute Error (m)")
-#
-#     # Draw wireframe for context
-#     for i in range(edges.shape[1]):
-#         n1, n2 = edges[0, i], edges[1, i]
-#         ax2.plot([pr_pos[n1,0], pr_pos[n2,0]], [pr_pos[n1,1], pr_pos[n2,1]], 'black', alpha=0.1, lw=0.5)
-#
-#     ax2.set_title("Prediction Error Heatmap (Where is the AI struggling?)")
-#     ax2.axis('equal')
-#
-#     plt.tight_layout()
-#     plt.show()
-
 import os
 
 import matplotlib.pyplot as plt
@@ -71,7 +7,7 @@ import yaml
 
 # Import your project classes
 from src.gnn_ggl.data import CantileverMeshDataset
-from src.gnn_ggl.model import SolidMechanicsGNN_V2
+from src.gnn_ggl.model import SolidMechanicsGNN_V3
 
 
 def load_config(config_path="config.yaml"):
@@ -140,6 +76,67 @@ def visualize_gnn_results(model, dataset, device, sample_idx=0):
     plt.show()
 
 
+def visualize_solid_mesh(model, dataset, device, sample_idx=0, amp=15.0):
+    model.eval()
+    test_x, test_y_gt = dataset[sample_idx]
+
+    with torch.no_grad():
+        pred_y = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
+
+    test_y_gt = test_y_gt.numpy()
+    coords = dataset.coords
+    edges = dataset.edge_index.cpu().numpy()
+
+    # Calcul de la magnitude du déplacement (pour la couleur)
+    disp_magnitude = np.linalg.norm(pred_y, axis=1)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # 1. Dessiner le maillage original (gris très clair)
+    for i in range(edges.shape[1]):
+        n1, n2 = edges[0, i], edges[1, i]
+        ax.plot(
+            [coords[n1, 0], coords[n2, 0]],
+            [coords[n1, 1], coords[n2, 1]],
+            color="gray",
+            alpha=0.1,
+            lw=0.5,
+        )
+
+    # 2. Dessiner le maillage déformé (le SOLIDE)
+    new_pos = coords + pred_y * amp
+
+    # On trace les lignes entre les nœuds déformés
+    for i in range(edges.shape[1]):
+        n1, n2 = edges[0, i], edges[1, i]
+        ax.plot(
+            [new_pos[n1, 0], new_pos[n2, 0]],
+            [new_pos[n1, 1], new_pos[n2, 1]],
+            color="black",
+            alpha=0.3,
+            lw=1.0,
+        )
+
+    # 3. Ajouter la colorimétrie (Heatmap de déplacement)
+    sc = ax.scatter(
+        new_pos[:, 0],
+        new_pos[:, 1],
+        c=disp_magnitude,
+        cmap="jet",
+        s=40,
+        zorder=3,
+        edgecolors="none",
+    )
+
+    plt.colorbar(sc, label="Magnitude du déplacement (m)")
+    ax.set_title(
+        f"Visualisation Solide - Déformation Amplifiée {amp}x\n(Couleur = Intensité du déplacement)"
+    )
+    ax.set_aspect("equal")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.show()
+
+
 def run_evaluation():
     # 1. Load Configuration
     cfg = load_config()
@@ -147,15 +144,17 @@ def run_evaluation():
 
     # 2. Re-create Dataset (needs to be same geometry as training)
     dataset = CantileverMeshDataset(
-        num_samples=10,  # We only need a few for evaluation
+        num_samples=800,
         nx=cfg["geometry"]["nx"],
         ny=cfg["geometry"]["ny"],
         length=cfg["geometry"]["length"],
         height=cfg["geometry"]["height"],
+        E_range=cfg["material"]["youngs_modulus_range"],
+        nu_range=cfg["material"]["poissons_ratio_range"],
     )
 
     # 3. Initialize Model Architecture
-    model = SolidMechanicsGNN_V2(
+    model = SolidMechanicsGNN_V3(
         edge_index=dataset.edge_index,
         edge_attr=dataset.edge_attr,
         hidden_dim=cfg["model"]["hidden_dim"],
@@ -163,7 +162,7 @@ def run_evaluation():
     ).to(device)
 
     # 4. Load Saved Weights
-    model_path = os.path.join(cfg["env"]["save_path"], "gnn_v2.pth")
+    model_path = os.path.join(cfg["env"]["save_path"], "gnn_v3.pth")
     if not os.path.exists(model_path):
         print(f"Error: Model file not found at {model_path}")
         return
@@ -175,7 +174,8 @@ def run_evaluation():
 
     # 5. Visualize!
     # Change sample_idx to see different force scenarios
-    visualize_gnn_results(model, dataset, device, sample_idx=2)
+    # visualize_gnn_results(model, dataset, device, sample_idx=2)
+    visualize_solid_mesh(model, dataset, device, sample_idx=2)
 
 
 if __name__ == "__main__":

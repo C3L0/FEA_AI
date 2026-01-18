@@ -7,8 +7,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from src.gnn_ggl.data import CantileverMeshDataset
-from src.gnn_ggl.evaluation import visualize_gnn_results
-from src.gnn_ggl.model import SolidMechanicsGNN_V2
+from src.gnn_ggl.model import SolidMechanicsGNN_V3
 
 
 def load_config(config_path="config.yaml"):
@@ -48,10 +47,16 @@ def run_simulation():
     # 3. Initialize Dataset using geometry settings from config
     dataset = CantileverMeshDataset(
         num_samples=800,
+        nx=cfg["geometry"]["nx"],
+        ny=cfg["geometry"]["ny"],
+        length=cfg["geometry"]["length"],
+        height=cfg["geometry"]["height"],
+        E_range=cfg["material"]["youngs_modulus_range"],
+        nu_range=cfg["material"]["poissons_ratio_range"],
     )
 
     # 4. Initialize Model using architecture settings from config
-    model = SolidMechanicsGNN_V2(
+    model = SolidMechanicsGNN_V3(
         edge_index=dataset.edge_index,
         edge_attr=dataset.edge_attr,
         hidden_dim=cfg["model"]["hidden_dim"],
@@ -102,8 +107,8 @@ def run_simulation():
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    torch.save(model.state_dict(), os.path.join(save_dir, "gnn_v2.pth"))
-    print(f"Training complete. Model saved to {save_dir}/gnn_v2.pth")
+    torch.save(model.state_dict(), os.path.join(save_dir, "gnn_v3.pth"))
+    print(f"Training complete. Model saved to {save_dir}/gnn_v3.pth")
 
 
 if __name__ == "__main__":
