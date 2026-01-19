@@ -1,116 +1,111 @@
-import os
-
-import matplotlib.pyplot as plt
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-import yaml
 from torch.utils.data import DataLoader
+import yaml
+import os
+import time
 
+# Internal imports
 from src.gnn_ggl.data import CantileverMeshDataset
 from src.gnn_ggl.model import SolidMechanicsGNN_V3
 
-
 def load_config(config_path="config.yaml"):
-    """
-    Loads a YAML configuration file.
-    """
-    if not os.path.exists(config_path):
-        # Default configuration structure
-        default_config = {
-            "geometry": {"nx": 25, "ny": 5, "length": 2.0, "height": 0.5},
-            "model": {"hidden_dim": 64, "layers": 12},
-            "training": {
-                "epochs": 200,
-                "batch_size": 32,
-                "learning_rate": 0.002,
-                "data_weight": 1.0,
-                "physics_weight": 0.01,
-            },
-            "env": {"device": "cuda", "save_path": "./models"},
-        }
-        with open(config_path, "w") as file:
-            yaml.dump(default_config, file)
-        return default_config
+    """Loads the project configuration."""
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)
 
-    with open(config_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
-
-
-def run_simulation():
+def train_model():
+    # 1. Setup Environment & Config
     cfg = load_config()
+    device = torch.device(cfg['env']['device'] if torch.cuda.is_available() else "cpu")
+    print(f"Starting V3 Training on device: {device}")
 
-    device = torch.device(cfg["env"]["device"] if torch.cuda.is_available() else "cpu")
-
-    print(f"Using device: {device}")
-
-    # 3. Initialize Dataset using geometry settings from config
+    # 2. Initialize Material-Aware Dataset
+    # We pass the material ranges defined in the config
     dataset = CantileverMeshDataset(
-        num_samples=800,
-        nx=cfg["geometry"]["nx"],
-        ny=cfg["geometry"]["ny"],
-        length=cfg["geometry"]["length"],
-        height=cfg["geometry"]["height"],
-        E_range=cfg["material"]["youngs_modulus_range"],
-        nu_range=cfg["material"]["poissons_ratio_range"],
+        num_samples=cfg.get('training', {}).get('num_samples', 1000),
+        nx=cfg['geometry']['nx'],
+        ny=cfg['geometry']['ny'],
+        length=cfg['geometry']['length'],
+        height=cfg['geometry']['height'],
+        E_range=cfg['material']['youngs_modulus_range'],
+        nu_range=cfg['material']['poissons_ratio_range']
+    )
+    
+    loader = DataLoader(
+        dataset, 
+        batch_size=cfg['training']['batch_size'], 
+        shuffle=True
     )
 
-    # 4. Initialize Model using architecture settings from config
+    # 3. Initialize V3 Model (5 Input Features)
     model = SolidMechanicsGNN_V3(
         edge_index=dataset.edge_index,
         edge_attr=dataset.edge_attr,
-        hidden_dim=cfg["model"]["hidden_dim"],
-        layers=cfg["model"]["layers"],
+        hidden_dim=cfg['model']['hidden_dim'],
+        layers=cfg['model']['layers'],
+        input_dim=cfg['model']['input_dim']
     ).to(device)
 
-    # 5. Training Setup using training settings from config
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=cfg["training"]["learning_rate"]
+    # 4. Optimizer & Stability Tools
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'])
+    
+    # Scheduler: Reduces learning rate if loss stops improving
+    # Removed 'verbose=True' to fix compatibility with newer PyTorch versions
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', patience=15, factor=0.5
     )
 
-    loader = torch.utils.data.DataLoader(
-        dataset, batch_size=cfg["training"]["batch_size"], shuffle=True
-    )
+    print(f"Training model with {cfg['model']['layers']} layers...")
+    start_time = time.time()
 
-    print(f"Model initialized with {cfg['model']['layers']} layers.")
-
-    # Training Loop
-    for epoch in range(cfg["training"]["epochs"]):
+    # 5. Training Loop
+    epochs = cfg['training']['epochs']
+    for epoch in range(epochs):
         model.train()
         epoch_loss = 0
-
-        for bx, by in loader:
-            bx, by = bx.to(device), by.to(device)
+        
+        for batch_x, batch_y in loader:
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            
             optimizer.zero_grad()
-
+            
             # Forward pass
-            out = model(bx)
-
-            # Loss Calculation (Uses weights defined in config)
-            loss_mse = F.mse_loss(out, by)
-
-            # Here you could integrate the physics_loss using:
-            # loss_phys = calculate_potential_energy(...)
-            # total_loss = cfg['training']['data_weight'] * loss_mse + cfg['training']['physics_weight'] * loss_phys
-
-            total_loss = cfg["training"]["data_weight"] * loss_mse
-            total_loss.backward()
+            predictions = model(batch_x)
+            
+            # Loss Calculation (MSE)
+            # Note: batch_y is already scaled (x1000) in the dataset generator
+            loss = F.mse_loss(predictions, batch_y)
+            
+            loss.backward()
+            
+            # STABILITY: Gradient Clipping
+            # Prevents "Exploding Gradients" in deep GNNs
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
+            epoch_loss += loss.item()
 
-            epoch_loss += total_loss.item()
+        avg_loss = epoch_loss / len(loader)
+        
+        # Step the scheduler based on average epoch loss
+        scheduler.step(avg_loss)
 
         if epoch % 10 == 0:
-            print(f"Epoch {epoch} | Average Loss: {epoch_loss / len(loader):.6f}")
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch:03d} | Loss: {avg_loss:.6f} | LR: {current_lr:.6f}")
 
-    # Save the model
-    save_dir = cfg["env"]["save_path"]
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    torch.save(model.state_dict(), os.path.join(save_dir, "gnn_v3.pth"))
-    print(f"Training complete. Model saved to {save_dir}/gnn_v3.pth")
-
+    # 6. Save Model
+    save_path = cfg['env']['save_path']
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    
+    torch.save(model.state_dict(), os.path.join(save_path, "gnn_v3.pth"))
+    
+    total_time = time.time() - start_time
+    print(f"Training Complete! Total time: {total_time:.2f}s")
+    print(f"Model saved to {save_path}/gnn_v3.pth")
 
 if __name__ == "__main__":
-    run_simulation()
-    # visualize_gnn_results()
+    train_model()

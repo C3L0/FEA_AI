@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 import torch
 import yaml
@@ -79,63 +80,64 @@ def visualize_gnn_results(model, dataset, device, sample_idx=0):
 def visualize_solid_mesh(model, dataset, device, sample_idx=0, amp=15.0):
     model.eval()
     test_x, test_y_gt = dataset[sample_idx]
-
+    
     with torch.no_grad():
         pred_y = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
-
+    
     test_y_gt = test_y_gt.numpy()
     coords = dataset.coords
-    edges = dataset.edge_index.cpu().numpy()
-
-    # Calcul de la magnitude du déplacement (pour la couleur)
-    disp_magnitude = np.linalg.norm(pred_y, axis=1)
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    # 1. Dessiner le maillage original (gris très clair)
-    for i in range(edges.shape[1]):
-        n1, n2 = edges[0, i], edges[1, i]
-        ax.plot(
-            [coords[n1, 0], coords[n2, 0]],
-            [coords[n1, 1], coords[n2, 1]],
-            color="gray",
-            alpha=0.1,
-            lw=0.5,
-        )
-
-    # 2. Dessiner le maillage déformé (le SOLIDE)
+    nx, ny = dataset.nx, dataset.ny
+    
+    # Coordonnées déformées
     new_pos = coords + pred_y * amp
+    
+    # Calcul de la magnitude du déplacement pour la couleur
+    magnitude = np.linalg.norm(pred_y, axis=1)
+    
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # --- DESSIN DES QUADS (Éléments finis) ---
+    # Au lieu de tracer des lignes individuelles, on trace des carrés remplis
+    for i in range(ny - 1):
+        for j in range(nx - 1):
+            # Index des 4 nœuds formant un carré
+            idx1 = i * nx + j
+            idx2 = i * nx + (j + 1)
+            idx3 = (i + 1) * nx + (j + 1)
+            idx4 = (i + 1) * nx + j
+            
+            # Points déformés correspondants
+            quad_coords = [new_pos[idx1], new_pos[idx2], new_pos[idx3], new_pos[idx4]]
+            
+            # Couleur moyenne du quad basée sur le déplacement
+            avg_mag = np.mean([magnitude[idx1], magnitude[idx2], magnitude[idx3], magnitude[idx4]])
+            
+            # On dessine le polygone
+            polygon = patches.Polygon(quad_coords, closed=True, 
+                                      linewidth=0.5, edgecolor='black', 
+                                      facecolor=plt.cm.jet(avg_mag / (np.max(magnitude) + 1e-9)),
+                                      alpha=0.8)
+            ax.add_patch(polygon)
 
-    # On trace les lignes entre les nœuds déformés
-    for i in range(edges.shape[1]):
-        n1, n2 = edges[0, i], edges[1, i]
-        ax.plot(
-            [new_pos[n1, 0], new_pos[n2, 0]],
-            [new_pos[n1, 1], new_pos[n2, 1]],
-            color="black",
-            alpha=0.3,
-            lw=1.0,
-        )
+    # Paramètres esthétiques
+    ax.set_xlim(-0.1, dataset.length + 0.5)
+    ax.set_ylim(-dataset.height - 0.5, dataset.height + 0.2)
+    ax.set_aspect('equal')
+    
+    # Barre de couleur personnalisée
+    sm = plt.cm.ScalarMappable(cmap=plt.cm.jet, norm=plt.Normalize(vmin=0, vmax=np.max(magnitude)))
+    plt.colorbar(sm, label="Déplacement (m)", ax=ax, shrink=0.6)
 
-    # 3. Ajouter la colorimétrie (Heatmap de déplacement)
-    sc = ax.scatter(
-        new_pos[:, 0],
-        new_pos[:, 1],
-        c=disp_magnitude,
-        cmap="jet",
-        s=40,
-        zorder=3,
-        edgecolors="none",
-    )
+    # Affichage des propriétés du matériau pour ce sample
+    # (On récupère E et nu depuis les features du nœud 0)
+    E_norm = test_x[0, 3].item()
+    nu = test_x[0, 4].item()
+    ax.set_title(f"Simulation GNN - Rendu Solide (FEA Style)\n"
+                 f"Matériau : E_norm={E_norm:.2f}, nu={nu:.2f} | Amplification: {amp}x", 
+                 fontsize=14, fontweight='bold')
 
-    plt.colorbar(sc, label="Magnitude du déplacement (m)")
-    ax.set_title(
-        f"Visualisation Solide - Déformation Amplifiée {amp}x\n(Couleur = Intensité du déplacement)"
-    )
-    ax.set_aspect("equal")
-    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.tight_layout()
     plt.show()
-
 
 def run_evaluation():
     # 1. Load Configuration
