@@ -1,0 +1,228 @@
+# loigc for Matpolotlib/Mesh plot
+
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+
+
+def visualize_gnn_results(model, dataset, device, sample_idx=0):
+    """
+    The visualization function you requested.
+    """
+    model.eval()
+
+    # 1. Get a sample from the dataset
+    test_x, test_y_gt = dataset[sample_idx]
+
+    # 2. Predict using the model
+    with torch.no_grad():
+        # Add batch dimension and move to device
+        input_batch = test_x.unsqueeze(0).to(device)
+        pred_y = model(input_batch).squeeze(0).cpu().numpy()
+
+    test_y_gt = test_y_gt.numpy()
+    coords = dataset.coords
+    edges = dataset.edge_index.cpu().numpy()
+
+    # 3. Calculate Error
+    error = np.linalg.norm(test_y_gt - pred_y, axis=1)
+
+    # 4. Plotting
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+    amp = 10.0  # Amplification factor to see the curve
+
+    # --- Wireframe Comparison ---
+    gt_pos = coords + test_y_gt * amp
+    pr_pos = coords + pred_y * amp
+
+    # Draw wireframes
+    for i in range(edges.shape[1]):
+        n1, n2 = edges[0, i], edges[1, i]
+        ax1.plot(
+            [gt_pos[n1, 0], gt_pos[n2, 0]],
+            [gt_pos[n1, 1], gt_pos[n2, 1]],
+            "b-",
+            alpha=0.3,
+        )
+        ax1.plot(
+            [pr_pos[n1, 0], pr_pos[n2, 0]],
+            [pr_pos[n1, 1], pr_pos[n2, 1]],
+            "r--",
+            alpha=0.6,
+        )
+
+    ax1.set_title(
+        f"Comparison: Blue (Truth) vs Red (GNN Prediction) - Sample {sample_idx}"
+    )
+    ax1.axis("equal")
+
+    # --- Error Heatmap ---
+    scatter = ax2.scatter(pr_pos[:, 0], pr_pos[:, 1], c=error, cmap="viridis", s=30)
+    plt.colorbar(scatter, ax=ax2, label="Error Magnitude")
+    ax2.set_title("Error Distribution (Heatmap)")
+    ax2.axis("equal")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_solid_mesh(model, dataset, device, sample_idx=0, amp=15.0):
+    model.eval()
+    test_x, test_y_gt = dataset[sample_idx]
+
+    with torch.no_grad():
+        pred_y = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
+
+    test_y_gt = test_y_gt.numpy()
+    coords = dataset.coords
+    nx, ny = dataset.nx, dataset.ny
+
+    # Coordonnées déformées
+    new_pos = coords + pred_y * amp
+
+    # Calcul de la magnitude du déplacement pour la couleur
+    magnitude = np.linalg.norm(pred_y, axis=1)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    # --- DESSIN DES QUADS (Éléments finis) ---
+    # Au lieu de tracer des lignes individuelles, on trace des carrés remplis
+    for i in range(ny - 1):
+        for j in range(nx - 1):
+            # Index des 4 nœuds formant un carré
+            idx1 = i * nx + j
+            idx2 = i * nx + (j + 1)
+            idx3 = (i + 1) * nx + (j + 1)
+            idx4 = (i + 1) * nx + j
+
+            # Points déformés correspondants
+            quad_coords = [new_pos[idx1], new_pos[idx2], new_pos[idx3], new_pos[idx4]]
+
+            # Couleur moyenne du quad basée sur le déplacement
+            avg_mag = np.mean(
+                [magnitude[idx1], magnitude[idx2], magnitude[idx3], magnitude[idx4]]
+            )
+
+            # On dessine le polygone
+            polygon = patches.Polygon(
+                quad_coords,
+                closed=True,
+                linewidth=0.5,
+                edgecolor="black",
+                facecolor=plt.cm.jet(avg_mag / (np.max(magnitude) + 1e-9)),
+                alpha=0.8,
+            )
+            ax.add_patch(polygon)
+
+    # Paramètres esthétiques
+    ax.set_xlim(-0.1, dataset.length + 0.5)
+    ax.set_ylim(-dataset.height - 0.5, dataset.height + 0.2)
+    ax.set_aspect("equal")
+
+    # Barre de couleur personnalisée
+    sm = plt.cm.ScalarMappable(
+        cmap=plt.cm.jet, norm=plt.Normalize(vmin=0, vmax=np.max(magnitude))
+    )
+    plt.colorbar(sm, label="Déplacement (m)", ax=ax, shrink=0.6)
+
+    # Affichage des propriétés du matériau pour ce sample
+    # (On récupère E et nu depuis les features du nœud 0)
+    E_norm = test_x[0, 3].item()
+    nu = test_x[0, 4].item()
+    ax.set_title(
+        f"Simulation GNN - Rendu Solide (FEA Style)\n"
+        f"Matériau : E_norm={E_norm:.2f}, nu={nu:.2f} | Amplification: {amp}x",
+        fontsize=14,
+        fontweight="bold",
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_comparison_fea(model, dataset, device, sample_idx=0, amp=None):
+    model.eval()
+    test_x, test_y_gt = dataset[sample_idx]
+
+    with torch.no_grad():
+        # Prédiction brute (en unités "IA", c'est-à-dire x1000)
+        raw_pred = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
+
+    # --- CORRECTION DE L'ÉCHELLE ---
+    # Le dataset a multiplié par 1000, donc on divise par 1000 pour revenir en Mètres
+    scale_factor = 1000.0
+    pred_y_m = raw_pred / scale_factor
+    test_y_gt_m = test_y_gt.numpy() / scale_factor
+
+    coords = dataset.coords
+    nx, ny = dataset.nx, dataset.ny
+
+    # Récupération E et nu
+    E_val = test_x[0, 3].item() * 210.0
+    nu_val = test_x[0, 4].item()
+
+    # Amplification automatique basée sur la Vraie Physique (Mètres)
+    if amp is None:
+        # On veut voir le déplacement, donc on amplifie ce qui est petit
+        max_disp = np.max(np.linalg.norm(test_y_gt_m, axis=1))
+        if max_disp < 1e-9:
+            max_disp = 1.0  # Sécurité division par zéro
+        # On vise un déplacement visible de 15% de la longueur totale
+        amp = (dataset.length * 0.15) / max_disp
+
+    print(f"Visualisation Sample {sample_idx} | Amplification calculée : x{amp:.1f}")
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+    def draw_mesh(ax, displacements_m, title, cmap_name="viridis"):
+        # On ajoute le déplacement amplifié (en mètres) aux coordonnées (en mètres)
+        new_pos = coords + displacements_m * amp
+        magnitude = np.linalg.norm(displacements_m, axis=1)
+
+        # Limites fixes pour ne pas perdre la poutre si elle bouge trop
+        ax.set_xlim(-0.2, dataset.length * 1.2)
+        ax.set_ylim(-dataset.height * 2, dataset.height * 2)  # Marge verticale
+
+        for i in range(ny - 1):
+            for j in range(nx - 1):
+                idx1 = i * nx + j
+                idx2 = i * nx + (j + 1)
+                idx3 = (i + 1) * nx + (j + 1)
+                idx4 = (i + 1) * nx + j
+
+                quad = [new_pos[idx1], new_pos[idx2], new_pos[idx3], new_pos[idx4]]
+                avg_mag = np.mean(
+                    [magnitude[idx1], magnitude[idx2], magnitude[idx3], magnitude[idx4]]
+                )
+
+                poly = patches.Polygon(
+                    quad,
+                    closed=True,
+                    linewidth=0.5,
+                    edgecolor="black",
+                    facecolor=plt.cm.get_cmap(cmap_name)(
+                        avg_mag / (np.max(magnitude) + 1e-9)
+                    ),
+                    alpha=0.9,
+                )
+                ax.add_patch(poly)
+
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        ax.set_aspect("equal")
+
+        sm = plt.cm.ScalarMappable(
+            cmap=cmap_name, norm=plt.Normalize(vmin=0, vmax=np.max(magnitude))
+        )
+        plt.colorbar(sm, ax=ax, label="Déplacement (m)", shrink=0.8)
+
+    draw_mesh(ax1, test_y_gt_m, f"Vérité Terrain (FEA) | E={E_val:.1f} GPa", "Blues")
+    draw_mesh(
+        ax2,
+        pred_y_m,
+        f"Prédiction GNN ({cfg['model']['layers']}) | Erreur Moyenne: {np.mean(np.abs(test_y_gt_m - pred_y_m)):.2e} m",
+        "Reds",
+    )
+
+    plt.tight_layout()
+    plt.show()
