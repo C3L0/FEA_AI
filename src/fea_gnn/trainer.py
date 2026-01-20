@@ -7,9 +7,9 @@ import yaml
 from torch.utils.data import DataLoader
 
 # Imports internes
-from src.gnn_ggl.data import CantileverMeshDataset
-from src.gnn_ggl.model import HybridPhysicsGNN
-from src.utils import load_config
+from src.fea_gnn.data_loader import CantileverMeshDataset
+from src.fea_gnn.model import HybridPhysicsGNN
+from src.fea_gnn.utils import load_config
 
 
 def calculate_pinn_loss(pred_u, edge_index, edge_attr, features, weight_physics):
