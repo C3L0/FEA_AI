@@ -1,0 +1,27 @@
+name: FEA-GNN CI 
+
+on:
+  push:
+    branches: [ "gnn_v3" ]
+  pull_request:
+    branches: [ "gnn_v3" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    # This runs the steps inside your Docker container
+    container:
+      image: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install . pytest
+
+    - name: Run Tests
+      run: |
+        pytest tests/
