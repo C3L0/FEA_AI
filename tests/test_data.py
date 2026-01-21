@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.fea_gnn.data_loader import CantileverMeshDataset
+# from src.fea_gnn.data_loader import CantileverMeshDataset
 
 # Note: Ensure your file is named 'data_loader.py' in src/fea_gnn/
 

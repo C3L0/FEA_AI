@@ -15,25 +15,24 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install uv
-      # Official action is the most stable way to use uv in CI
+      # L'action officielle gère le PATH et le cache automatiquement
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
         python-version: "3.10"
 
     - name: Install dependencies
-      # 'uv sync' installs your project (src/fea_gnn) as a package
-      # so that 'import fea_gnn' works everywhere.
+      # 'uv sync' installe votre projet (src/fea_gnn) comme un package
+      # ce qui permet à 'import fea_gnn' de fonctionner partout.
       run: uv sync
 
     - name: Debug Environment
       run: |
-        echo "Current Directory Structure:"
+        echo "Structure des fichiers :"
         ls -R
-        echo "Installed Packages:"
+        echo "Packages installés :"
         uv pip list
 
     - name: Run Pytest
-      # We use 'uv run' to execute within the virtual environment
-      #run: uv run pytest tests/
-      run: uv run python -m pytest
+      # 'uv run' exécute pytest dans l'environnement virtuel synchronisé
+      run: uv run pytest tests/
