@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build-meta"
+
 [project]
 name = "fea-ai"
 version = "0.1.0"
@@ -21,6 +25,9 @@ dependencies = [
 dev-dependencies = [
     "pytest>=7.0.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 # This tells pytest where the source code is so you don't need PYTHONPATH
