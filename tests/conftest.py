@@ -9,6 +9,7 @@ def create_test_config():
     """
     Crée un config.yaml de test à la racine AVANT que les tests ne commencent.
     scope='session' garantit qu'il est créé une seule fois pour tous les tests.
+    autouse=True assure que la fixture est exécutée sans appel explicite.
     """
     config_data = {
         "geometry": {"nx": 5, "ny": 2, "length": 1.0, "height": 0.2},
