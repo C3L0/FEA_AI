@@ -17,10 +17,7 @@ dependencies = [
     "torch-utils>=0.1.2",
 ]
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=7.0.0",
-]
+
 
 [tool.pytest.ini_options]
 # This tells pytest where the source code is so you don't need PYTHONPATH
