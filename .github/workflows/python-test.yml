@@ -3,8 +3,8 @@ name: FEA-GNN CI
 on:
   push:
     branches: [ "gnn_v3" ]
-  pull_request:
-    branches: [ "gnn_v3" ]
+  # pull_request:
+  #   branches: [ "gnn_v3" ]
 
 jobs:
   # --- JOB 1 : TESTS ---
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.12"
+          python-version: "3.10"
       - name: Install dependencies
         run: uv sync
       - name: Run Tests
