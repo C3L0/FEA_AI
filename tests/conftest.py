@@ -1,9 +1,10 @@
-import pytest
-import yaml
 import os
 
+import pytest
+import yaml
 
-@pytest.fixture(autocmd=True)
+
+@pytest.fixture(autouse=True)
 def create_test_config():
     """
     This fixture runs automatically before every test.
