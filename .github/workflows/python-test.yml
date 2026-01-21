@@ -6,49 +6,34 @@ on:
   # pull_request:
   #   branches: [ "gnn_v3" ]
 
-# jobs:
-#   test:
-#     runs-on: ubuntu-latest
-#     
-#     steps:
-#     - name: Check out code
-#       uses: actions/checkout@v4
-# 
-#     - name: Install uv
-#       uses: astral-sh/setup-uv@v5
-#       with:
-#         # Enable caching to speed up repeated runs
-#         enable-cache: true
-#         python-version: "3.10"
-# 
-#     - name: Install dependencies
-#       # 'uv sync' installs the project and all dependencies (including dev)
-#       # --frozen ensures we use the exact versions from your uv.lock file
-#       run: uv sync --frozen
-# 
-#     - name: Debug Environment
-#       run: |
-#         echo "Listing root directory:"
-#         ls -F
-#         echo "Checking installed packages via uv:"
-#         uv pip list
-# 
-#     - name: Run Pytest
-#       # 'uv run' ensures we run within the virtual environment created by uv
-#       run: uv run pytest tests/
 jobs:
-  # --- JOB 1 : TESTS ---
   test:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install dependencies
-        run: uv sync
-      - name: Run Tests
-        run: uv run python -m pytest
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      # The official action is much more reliable than curl in CI
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.10"
+
+    - name: Install dependencies
+      # We use 'uv sync' to set up the environment. 
+      # Note: If you haven't committed 'uv.lock' yet, remove '--frozen'.
+      run: uv sync
+
+    - name: Debug Environment
+      run: |
+        echo "Listing root directory:"
+        ls -F
+        echo "Checking installed packages via uv:"
+        uv pip list
+
+    - name: Run Pytest
+      # Using 'uv run' ensures the tests run in the synced virtual environment
+      # run: uv run pytest tests/
+      run: uv run python -m pytest
