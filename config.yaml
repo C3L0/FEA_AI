@@ -16,12 +16,12 @@ material:
 model:
   input_dim: 5     # [Fx, Fy, isFixed, E, nu]
   hidden_dim: 64   # Size of the "math vectors" inside the GNN layers
-  layers: 10       # Number of times force messages are passed between nodes
+  layers: 12       # Number of times force messages are passed between nodes
 
 # 3. Training Hyperparameters: Controls how the model learns
 
 training:
-  epochs: 200             # How many times to see the entire dataset
+  epochs: 300             # How many times to see the entire dataset
   batch_size: 32          # Number of simulations to look at simultaneously
   learning_rate: 0.002    # Speed of optimization
   data_weight: 1.0        # Importance of matching analytical data
