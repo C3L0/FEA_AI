@@ -144,7 +144,7 @@ def main():
     comm = MPI.COMM_WORLD
     rank = comm.rank
     size = comm.size
-    n_samples_total = 20
+    n_samples_total = 100
     n_samples_local = n_samples_total // size
     rng = np.random.default_rng(42 + rank)
 

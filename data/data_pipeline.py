@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # On suppose que db.csv et connectivity.csv sont dans le dossier actuel '.'
     # Le dataset sera créé dans un dossier 'data_processed'
     try:
-        dataset = PlateHoleDataset(root=".")
+        dataset = PlateHoleDataset(root="data/")
 
         print("\n--- Infos Dataset ---")
         print(f"Nombre de simulations : {len(dataset)}")

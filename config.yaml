@@ -1,34 +1,26 @@
-# 1. Geometry Settings: Defines the physical beam dimensions
-
 geometry:
-  nx: 25           # Number of nodes along the length (X-axis)
-  ny: 5            # Number of nodes along the height (Y-axis)
-  length: 2.0      # Physical length of the beam in meters
-  height: 0.5      # Physical height of the beam in meters
+  nx: 25            
+  ny: 5             
+  length: 2.0       
+  height: 0.5       
+  lc_factor: 12     
 
-# 5. Material Properties
 material:
-  youngs_modulus_range: [10.0, 210.0] # GPa
+  youngs_modulus_range: [10.0, 210.0]
   poissons_ratio_range: [0.2, 0.45]
 
-# 2. Model Architecture: Defines the shape of the Neural Network
-
 model:
-  input_dim: 5     # [Fx, Fy, isFixed, E, nu]
-  hidden_dim: 64   # Size of the "math vectors" inside the GNN layers
-  layers: 12       # Number of times force messages are passed between nodes
-
-# 3. Training Hyperparameters: Controls how the model learns
+  input_dim: 7      
+  hidden_dim: 32    # Réduit de 64 à 32 pour économiser la VRAM
+  layers: 6         # Réduit de 10 à 6 (plus stable pour la mémoire)
 
 training:
-  epochs: 300             # How many times to see the entire dataset
-  batch_size: 32          # Number of simulations to look at simultaneously
-  learning_rate: 0.002    # Speed of optimization
-  data_weight: 1.0        # Importance of matching analytical data
-  physics_weight: 0.05    # Importance of Potential Energy constraint
-
-# 4. Environment: Setup for the computer running the code
+  epochs: 200             
+  batch_size: 4     # RÉDUIT de 32 à 4 (Indispensable pour ta GPU 6Go)
+  learning_rate: 0.001    
+  data_weight: 1.0        
+  physics_weight: 0.05    
 
 env:
-  device: "cuda"          # "cuda" for GPU or "cpu" for processor
-  save_path: "./models"   # Folder where the trained model will be stored
+  device: "cuda"          
+  save_path: "./models"
