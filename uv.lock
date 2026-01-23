@@ -319,6 +319,11 @@ dependencies = [
     { name = "torch-utils" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "gmsh", specifier = ">=4.15.0" },
@@ -334,6 +339,9 @@ requires-dist = [
     { name = "torch-geometric", specifier = ">=2.7.0" },
     { name = "torch-utils", specifier = ">=0.1.2" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 
 [[package]]
 name = "filelock"
