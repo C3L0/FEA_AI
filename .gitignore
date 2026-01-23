@@ -1,16 +1,26 @@
+.venv/ 
+.python-version 
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
 
-.venv/
-venv/
-ENV/
+.vscode/
+.idea/
+*.swp
+*.swo
 
-.DS_Store
-.DS_Store?
-Thumbs.db
+raw/*.csv
+processed/*.pt
+models/*.pth
+*.csv
+*.pt
 
-build/
+!raw/.gitkeep
+!processed/.gitkeep
+!models/.gitkeep
+!visualization/.gitkeep
+
+visualization/*.png
 dist/
-*.egg-info/
+build/
