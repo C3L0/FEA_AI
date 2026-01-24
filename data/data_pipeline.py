@@ -59,12 +59,22 @@ class PlateHoleDataset(InMemoryDataset):
 
             # 2. Features des nœuds (X)
             # Normalisation : E est souvent très grand (GPa), on le divise par 100e9
-            node_features = nodes_sim[
-                ["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]
-            ].values.copy()
-            node_features[:, 2] /= 1e9  # E en GPa pour la stabilité
+            # node_features = nodes_sim[
+            #     ["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]
+            # ].values.copy()
+            # node_features[:, 2] /= 1e9  # E en GPa pour la stabilité
+            #
+            # x = torch.tensor(node_features, dtype=torch.float)
 
-            x = torch.tensor(node_features, dtype=torch.float)
+            feat = nodes_sim[["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]].values.copy()
+
+            feat[:, 0] /= 2.5  # x : max length ~2.5m
+            feat[:, 1] /= 1.2  # y : max height ~1.2m
+            feat[:, 2] /= 210e9  # E : max 210 GPa -> devient ~1.0
+            feat[:, 3] /= 0.5  # nu : max 0.5
+            feat[:, 4:6] /= 1e7  # Forces : max 10^7 -> devient ~1.0
+
+            x = torch.tensor(feat, dtype=torch.float)
 
             # 3. Cibles (Y) : Déplacements (ux, uy)
             # Souvent multiplié par 1000 (m -> mm) pour aider l'IA à voir des chiffres > 0.001

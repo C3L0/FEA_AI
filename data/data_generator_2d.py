@@ -1,5 +1,8 @@
 import os
 
+# On autorise les imports mixtes pour FEniCSx avant tout import dolfinx
+os.environ["DOLFINX_ALLOW_USER_SITE_IMPORTS"] = "1"
+
 import dolfinx.io.gmsh as gmshio
 import gmsh
 import numpy as np
@@ -13,12 +16,19 @@ from petsc4py.PETSc import ScalarType
 # --- 1. FONCTIONS DE MAILLAGE ET SOLVEUR ---
 
 
-def create_plate_with_hole_mesh(comm, L, H, R):
+def create_plate_with_hole_mesh(comm, L, H, R, res_factor):
+    """
+    Crée le maillage avec une densité variable contrôlée par res_factor.
+    res_factor élevé = maillage fin.
+    """
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 0)
     model = gmsh.model
     model.add("Plate_with_Hole")
-    lc = H / 12
+
+    # MODIFICATION ICI : La taille caractéristique lc dépend du facteur aléatoire
+    lc = H / res_factor
+
     rect = model.occ.addRectangle(0, 0, 0, L, H)
     circle = model.occ.addDisk(L / 2, H / 2, 0, R, R)
     out, _ = model.occ.cut([(2, rect)], [(2, circle)])
@@ -77,20 +87,18 @@ def solve_elasticity(msh, E, nu, F):
     u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
     a = ufl.inner(sigma(u), epsilon(v)) * ufl.dx
     L_form = ufl.dot(ufl.as_vector([F, 0.0]), v) * ds(1)
+
+    # Options pour stabilité
     problem = LinearProblem(a, L_form, bcs=[bc_left], petsc_options_prefix="elasticity")
     uh = problem.solve()
     return uh, V
 
 
-# --- 2. EXTRACTION DES DONNÉES (CORRIGÉE POUR 0.10.0) ---
+# --- 2. EXTRACTION DES DONNÉES ---
 
 
 def extract_simulation_data(sim_id, msh, V, uh, E, nu, F):
-    # Coordonnées des nœuds
     dof_coords = V.tabulate_dof_coordinates()
-
-    # Récupération sécurisée de l'array de déplacement
-    # Dans certaines versions, uh.x est déjà un array, dans d'autres c'est uh.x.array
     u_array = uh.x.array if hasattr(uh.x, "array") else uh.x
     u_values = np.real(u_array).reshape(-1, 2)
 
@@ -98,7 +106,6 @@ def extract_simulation_data(sim_id, msh, V, uh, E, nu, F):
     y_nodes = dof_coords[:, 1]
     num_nodes = len(x_nodes)
 
-    # Conditions aux limites
     load_x = np.zeros(num_nodes)
     right_mask = np.isclose(x_nodes, np.max(x_nodes), atol=1e-3)
     load_x[right_mask] = F
@@ -122,8 +129,6 @@ def extract_simulation_data(sim_id, msh, V, uh, E, nu, F):
             }
         )
 
-    # Connectivité (Triangles)
-    # V.dofmap.list peut être un AdjacencyList ou un numpy array
     dofmap_obj = V.dofmap.list
     cells = dofmap_obj.array if hasattr(dofmap_obj, "array") else dofmap_obj
     cells = cells.reshape(-1, 3)
@@ -144,7 +149,9 @@ def main():
     comm = MPI.COMM_WORLD
     rank = comm.rank
     size = comm.size
-    n_samples_total = 100
+
+    # Nombre de simulations (Ajustez selon vos besoins, ex: 250 ou 500)
+    n_samples_total = 250
     n_samples_local = n_samples_total // size
     rng = np.random.default_rng(42 + rank)
 
@@ -152,23 +159,36 @@ def main():
     local_connectivity = []
 
     if rank == 0:
-        print(f"Génération de {n_samples_total} simulations...")
+        print(f"Génération de {n_samples_total} simulations sur {size} cœurs...")
 
     for i in range(n_samples_local):
         sim_id = rank * n_samples_local + i
+
+        # Géométrie variable
         L, H = rng.uniform(1.5, 2.5), rng.uniform(0.8, 1.2)
         R = rng.uniform(0.1, 0.3) * H
+
+        # Matériaux variables
         E, nu = rng.uniform(10e9, 210e9), rng.uniform(0.2, 0.4)
         F = rng.uniform(1e5, 1e7)
 
+        # MODIFICATION ICI : Densité de maillage variable
+        # De grossier (8.0) à fin (25.0)
+        res_factor = rng.uniform(8.0, 25.0)
+
         try:
-            msh = create_plate_with_hole_mesh(MPI.COMM_SELF, L, H, R)
+            # On passe le res_factor à la fonction de maillage
+            msh = create_plate_with_hole_mesh(MPI.COMM_SELF, L, H, R, res_factor)
             uh, V = solve_elasticity(msh, E, nu, F)
+
             nodes, topo = extract_simulation_data(sim_id, msh, V, uh, E, nu, F)
             local_nodes.extend(nodes)
             local_connectivity.extend(topo)
+
             if rank == 0:
-                print(f"Sim {sim_id} OK")
+                # On affiche aussi le nombre de nœuds pour vérifier la variété
+                print(f"Sim {sim_id} OK ({len(nodes)} nœuds)")
+
         except Exception as e:
             print(f"Erreur Sim {sim_id}: {e}")
 
@@ -178,10 +198,20 @@ def main():
     if rank == 0:
         flat_nodes = [item for sublist in all_nodes for item in sublist]
         flat_topo = [item for sublist in all_topo for item in sublist]
-        pd.DataFrame(flat_nodes).to_csv("data/db.csv", index=False)
-        pd.DataFrame(flat_topo).to_csv("data/connectivity.csv", index=False)
+
+        # Sauvegarde dans le dossier 'raw' (Structure propre)
+        # Assurez-vous que le dossier raw existe, sinon changez pour 'data/'
+        output_dir = "raw"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        pd.DataFrame(flat_nodes).to_csv(f"{output_dir}/db.csv", index=False)
+        pd.DataFrame(flat_topo).to_csv(f"{output_dir}/connectivity.csv", index=False)
+
         print(
-            f"\nSuccès ! 'db.csv' ({len(flat_nodes)} lignes) et 'connectivity.csv' générés."
+            f"\nSuccès ! Fichiers générés dans '{output_dir}/' :"
+            f"\n -> db.csv ({len(flat_nodes)} lignes)"
+            f"\n -> connectivity.csv ({len(flat_topo)} triangles)"
         )
 
 

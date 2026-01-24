@@ -64,7 +64,7 @@ def test_material_normalization():
 def test_dataset_loading():
     # Vérifie que le dataset se charge
     if os.path.exists("processed/dataset.pt"):
-        dataset = PlateHoleDataset(root=".")
+        dataset = PlateHoleDataset(root="data/")
         assert len(dataset) > 0
 
         # Vérifie la structure du premier graphe
