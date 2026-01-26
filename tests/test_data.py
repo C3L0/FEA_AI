@@ -1,7 +1,10 @@
+import os
+
 import numpy as np
 import pytest
 import torch
 
+from data.data_pipeline import PlateHoleDataset
 from fea_gnn.data_loader import CantileverMeshDataset
 
 
@@ -56,3 +59,19 @@ def test_material_normalization():
     assert torch.allclose(
         e_values, torch.tensor(1.0), atol=1e-5
     ), f"Normalization failed! Expected 1.0, got {e_values.mean()}"
+
+
+def test_dataset_loading():
+    # Vérifie que le dataset se charge
+    if os.path.exists("processed/dataset.pt"):
+        dataset = PlateHoleDataset(root=".")
+        assert len(dataset) > 0
+
+        # Vérifie la structure du premier graphe
+        data = dataset[0]
+        assert hasattr(data, "x")  # Features
+        assert hasattr(data, "edge_index")  # Connectivité
+        assert hasattr(data, "y")  # Labels (ux, uy)
+
+        # Vérifie que les coordonnées x, y sont dans les features (colonnes 0 et 1)
+        assert data.x.shape[1] == 7  # x, y, E, nu, Fx, Fy, isFixed
