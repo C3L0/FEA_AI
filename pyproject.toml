@@ -1,34 +1,41 @@
 [project]
 name = "fea-ai"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simulation FEA avec support NVIDIA Blackwell (RTX 5070)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "bottleneck>=1.6.0",
     "gmsh>=4.15.0",
     "matplotlib>=3.10.8",
     "mpi4py>=4.1.1",
-    # "numpy>=2.4.1",
     "numexpr>=2.14.1",
-    "numpy<2.0",
+    "numpy>=2.0",
     "pandas>=2.3.3",
     "pytest>=9.0.2",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.8.0",
     "seaborn>=0.13.2",
-    "torch>=2.9.1",
-    "torch-geometric>=2.7.0",
+    "torch>=2.6.0",      # Version minimale pour Blackwell
+    "torchvision",
+    "torch-geometric>=2.6.0",
     "torch-utils>=0.1.2",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 
 [tool.pytest.ini_options]
-# This tells pytest where the source code is so you don't need PYTHONPATH
+# Configuration Pytest
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
-[tool.uv]
-dev-dependencies = ["pytest>=8.0.0",]
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
