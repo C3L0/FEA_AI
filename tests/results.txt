@@ -135,3 +135,37 @@ training:
 poque 055 | Loss Totale: 0.003605 (Data: 0.003372, Phys: -0.002216)Checkpoint saved at : ./models\gnn_hybrid.pth
 
 evaluator caca
+
+
+
+-----
+
+model:
+  input_dim: 7       
+  hidden_dim: 96    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 200              
+  batch_size: 16     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+  Époque 195 | Loss Totale: 0.002969 (Data: 0.009276, Phys: -0.002374)Checkpoint saved at : ./models\gnn_hybrid.pth
+
+========================================
+   RAPPORT D'ÉVALUATION (GNN Hybride)
+========================================
+ MSE (Erreur Quadratique):  4.27e-09 m²
+ MAE (Erreur Absolue):      5.21e-05 m
+ Erreur Max (Pire Cas):     2.53e-04 m
+========================================
+
+[Evaluator] Génération des graphiques...
+[Visualizer] Sample 0 | E=46.0 GPa | Amp: x1680.1
+[Visualizer] Sample 10 | E=68.7 GPa | Amp: x3965.8
+[Visualizer] Sample 20 | E=43.7 GPa | Amp: x2742.3
+
+
+-----

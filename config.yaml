@@ -11,7 +11,7 @@ material:
 
 model:
   input_dim: 7       
-  hidden_dim: 64    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  hidden_dim: 96    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
   layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
 
 training:
