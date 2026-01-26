@@ -67,7 +67,7 @@ def run_evaluation_pipeline():
     # 1. Chargement des données
     print("[Evaluator] Chargement du dataset...")
     # On utilise get_dataset() qui pointe vers processed/dataset.pt
-    dataset = get_dataset(root=".")
+    dataset = get_dataset()
 
     # 2. Chargement du modèle
     print("[Evaluator] Initialisation du modèle...")

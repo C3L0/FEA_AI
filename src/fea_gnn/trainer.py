@@ -10,6 +10,8 @@ from src.fea_gnn.data_loader import get_dataset  # CantileverMeshDataset
 from src.fea_gnn.model import HybridPhysicsGNN
 from src.fea_gnn.utils import load_config
 
+#os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
 
 def calculate_pinn_loss(pred_u, data, weight_physics):
     """
@@ -60,7 +62,7 @@ def train_model():
     #     E_range=cfg["material"]["youngs_modulus_range"],
     #     nu_range=cfg["material"]["poissons_ratio_range"],
     # )
-    dataset = get_dataset(root=".")
+    dataset = get_dataset()
 
     # CRUCIAL : On utilise le loader de torch_geometric pour gérer le batching des graphes
     loader = DataLoader(dataset, batch_size=cfg["training"]["batch_size"], shuffle=True)
@@ -117,11 +119,16 @@ def train_model():
         avg_loss = total_epoch_loss / len(loader)
         scheduler.step(avg_loss)
 
-        if epoch % 10 == 0:
+        if epoch % 5 == 0:
+            os.makedirs(cfg["env"]["save_path"], exist_ok=True)
+            save_file = os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
+            torch.save(model.state_dict(), save_file)
             print(
                 f"Époque {epoch:03d} | Loss Totale: {avg_loss:.6f} "
                 f"(Data: {loss_data.item():.6f}, Phys: {loss_phys.item():.6f})"
+                f"Checkpoint saved at : {save_file}"
             )
+            
 
     # 5. Sauvegarde
     os.makedirs(cfg["env"]["save_path"], exist_ok=True)

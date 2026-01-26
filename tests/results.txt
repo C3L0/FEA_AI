@@ -1,0 +1,137 @@
+geometry:
+  nx: 50             # Doublé pour plus de précision spatiale
+  ny: 10             
+  length: 2.0        
+  height: 0.5        
+  lc_factor: 15      # Un maillage légèrement plus fin
+
+material:
+  youngs_modulus_range: [10.0, 210.0]
+  poissons_ratio_range: [0.2, 0.45]
+
+---------------------------
+
+model:
+  input_dim: 7       
+  hidden_dim: 64    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 100              
+  batch_size: 16     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+
+Époque 098 | Loss Totale: 0.003065 (Data: 0.008281, Phys: -0.002051)
+
+========================================
+   RAPPORT D'ÉVALUATION (GNN Hybride)
+========================================
+ MSE (Erreur Quadratique):  3.89e-09 m²
+ MAE (Erreur Absolue):      4.63e-05 m
+ Erreur Max (Pire Cas):     2.28e-04 m
+========================================
+
+[Evaluator] Génération des graphiques...
+[Visualizer] Sample 0 | E=46.0 GPa | Amp: x1680.1
+[Visualizer] Sample 10 | E=68.7 GPa | Amp: x3965.8
+[Visualizer] Sample 20 | E=43.7 GPa | Amp: x2742.3
+
+-----
+
+model:
+  input_dim: 7       
+  hidden_dim: 128    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 100              
+  batch_size: 16     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0005 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+Époque 098 | Loss Totale: 0.003959 (Data: 0.010006, Phys: -0.002384)
+
+-----
+
+model:
+  input_dim: 7       
+  hidden_dim: 128    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 200              
+  batch_size: 16     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+Époque 198 | Loss Totale: 0.001856 (Data: 0.001588, Phys: -0.002202)
+
+========================================
+   RAPPORT D'ÉVALUATION (GNN Hybride)
+========================================
+ MSE (Erreur Quadratique):  3.74e-09 m²
+ MAE (Erreur Absolue):      4.49e-05 m
+ Erreur Max (Pire Cas):     2.40e-04 m
+========================================
+
+[Evaluator] Génération des graphiques...
+[Visualizer] Sample 0 | E=46.0 GPa | Amp: x1680.1
+[Visualizer] Sample 10 | E=68.7 GPa | Amp: x3965.8
+[Visualizer] Sample 20 | E=43.7 GPa | Amp: x2742.3
+
+-------
+
+
+model:
+  input_dim: 7       
+  hidden_dim: 128    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 10              
+  batch_size: 32     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+Époque 008 | Loss Totale: 0.006942 (Data: 0.002026, Phys: -0.002604)
+
+========================================
+   RAPPORT D'ÉVALUATION (GNN Hybride)
+========================================
+ MSE (Erreur Quadratique):  8.45e-09 m²
+ MAE (Erreur Absolue):      6.05e-05 m
+ Erreur Max (Pire Cas):     3.61e-04 m
+========================================
+
+[Evaluator] Génération des graphiques...
+[Visualizer] Sample 0 | E=46.0 GPa | Amp: x1680.1
+[Visualizer] Sample 10 | E=68.7 GPa | Amp: x3965.8
+[Visualizer] Sample 20 | E=43.7 GPa | Amp: x2742.3
+
+
+
+-----
+
+
+model:
+  input_dim: 7       
+  hidden_dim: 128    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
+
+training:
+  epochs: 100              
+  batch_size: 32     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
+
+
+poque 055 | Loss Totale: 0.003605 (Data: 0.003372, Phys: -0.002216)Checkpoint saved at : ./models\gnn_hybrid.pth
+
+evaluator caca

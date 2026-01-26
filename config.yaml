@@ -1,26 +1,26 @@
 geometry:
-  nx: 25            
-  ny: 5             
-  length: 2.0       
-  height: 0.5       
-  lc_factor: 12     
+  nx: 50             # Doublé pour plus de précision spatiale
+  ny: 10             
+  length: 2.0        
+  height: 0.5        
+  lc_factor: 15      # Un maillage légèrement plus fin
 
 material:
   youngs_modulus_range: [10.0, 210.0]
   poissons_ratio_range: [0.2, 0.45]
 
 model:
-  input_dim: 7      
-  hidden_dim: 32    # Réduit de 64 à 32 pour économiser la VRAM
-  layers: 6         # Réduit de 10 à 6 (plus stable pour la mémoire)
+  input_dim: 7       
+  hidden_dim: 64    # Augmenté (32 -> 128) : Plus de capacité d'apprentissage
+  layers: 10         # Augmenté (6 -> 10) : Meilleure profondeur pour la physique
 
 training:
-  epochs: 200             
-  batch_size: 4     # RÉDUIT de 32 à 4 (Indispensable pour ta GPU 6Go)
-  learning_rate: 0.001    
-  data_weight: 1.0        
-  physics_weight: 0.05    
+  epochs: 200              
+  batch_size: 16     # Augmenté (4 -> 32) : Exploite les 12Go de VRAM
+  learning_rate: 0.0001 # Légèrement réduit car le batch est plus gros (plus stable)
+  data_weight: 1.0         
+  physics_weight: 0.1 # On peut augmenter un peu le poids de la physique (PINN)
 
 env:
-  device: "cuda"          
+  device: "cuda"           
   save_path: "./models"
