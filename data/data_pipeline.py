@@ -6,6 +6,8 @@ from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.utils import coalesce
 from tqdm import tqdm
 
+from src.fea_gnn.utils import load_config
+
 
 class PlateHoleDataset(InMemoryDataset):
     def __init__(
@@ -16,9 +18,6 @@ class PlateHoleDataset(InMemoryDataset):
         transform=None,
         pre_transform=None,
     ):
-        """
-        root: Dossier où les données transformées seront stockées.
-        """
         self.nodes_csv = nodes_csv
         self.topo_csv = topo_csv
         super().__init__(root, transform, pre_transform)
@@ -26,101 +25,84 @@ class PlateHoleDataset(InMemoryDataset):
 
     @property
     def raw_file_names(self):
-        # Les fichiers sources nécessaires
         return [self.nodes_csv, self.topo_csv]
 
     @property
     def processed_file_names(self):
-        # Le nom du fichier final généré
         return ["dataset.pt"]
 
-    def download(self):
-        # Pas de téléchargement nécessaire ici, les fichiers sont locaux
-        pass
-
     def process(self):
-        """
-        Cette méthode n'est exécutée qu'une seule fois.
-        Elle lit les CSV et crée le fichier .pt
-        """
         print(f"Chargement des fichiers depuis {self.root}...")
         df_nodes = pd.read_csv(os.path.join(self.root, self.nodes_csv))
         df_topo = pd.read_csv(os.path.join(self.root, self.topo_csv))
 
+        cfg = load_config()
+        norm_cfg = cfg["normalization"]
+
         data_list = []
         sim_ids = df_nodes["SimulationID"].unique()
 
-        for sim_id in tqdm(sim_ids, desc="Conversion des simulations en graphes"):
-            # 1. Extraire les données de cette simulation
+        for sim_id in tqdm(sim_ids, desc="Conversion des simulations"):
             nodes_sim = df_nodes[df_nodes["SimulationID"] == sim_id].sort_values(
                 "NodeID"
             )
             topo_sim = df_topo[df_topo["SimulationID"] == sim_id]
 
-            # 2. Features des nœuds (X)
-            # Normalisation : E est souvent très grand (GPa), on le divise par 100e9
-            # node_features = nodes_sim[
-            #     ["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]
-            # ].values.copy()
-            # node_features[:, 2] /= 1e9  # E en GPa pour la stabilité
-            #
-            # x = torch.tensor(node_features, dtype=torch.float)
+            # 1. Features
+            cols = ["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]
+            feat = nodes_sim[cols].to_numpy(dtype=float)
 
-            feat = nodes_sim[["x", "y", "E", "nu", "Fx", "Fy", "isFixed"]].values.copy()
+            # On garde une copie des coordonnées NON normalisées pour calculer les distances physiques
+            pos_physical = torch.tensor(feat[:, 0:2], dtype=torch.float)
 
-            feat[:, 0] /= 2.5  # x : max length ~2.5m
-            feat[:, 1] /= 1.2  # y : max height ~1.2m
-            feat[:, 2] /= 210e9  # E : max 210 GPa -> devient ~1.0
-            feat[:, 3] /= 0.5  # nu : max 0.5
-            feat[:, 4:6] /= 1e7  # Forces : max 10^7 -> devient ~1.0
+            # Normalisation
+            feat[:, 0] /= float(norm_cfg["x"])
+            feat[:, 1] /= float(norm_cfg["y"])
+            feat[:, 2] /= float(norm_cfg["E"])
+            feat[:, 3] /= float(norm_cfg["nu"])
+            feat[:, 4] /= float(norm_cfg["force"])
+            feat[:, 5] /= float(norm_cfg["force"])
 
             x = torch.tensor(feat, dtype=torch.float)
 
-            # 3. Cibles (Y) : Déplacements (ux, uy)
-            # Souvent multiplié par 1000 (m -> mm) pour aider l'IA à voir des chiffres > 0.001
-            node_labels = nodes_sim[["ux", "uy"]].values * 1000.0
-            y = torch.tensor(node_labels, dtype=torch.float)
+            # 2. Cibles
+            target_scale = float(norm_cfg.get("target_scale", 1000.0))
+            y_values = nodes_sim[["ux", "uy"]].to_numpy(dtype=float) * target_scale
+            y = torch.tensor(y_values, dtype=torch.float)
 
-            # 4. Construction des arêtes (Edge Index)
-            # On transforme les triangles (n1, n2, n3) en paires d'arêtes
+            # 3. Arêtes & Distances
             edges = []
-            for _, row in topo_sim.iterrows():
-                n1, n2, n3 = int(row["n1"]), int(row["n2"]), int(row["n3"])
+            cells = topo_sim[["n1", "n2", "n3"]].to_numpy(dtype=int)
+            for cell in cells:
+                n1, n2, n3 = cell
                 edges.extend(
                     [[n1, n2], [n2, n1], [n2, n3], [n3, n2], [n3, n1], [n1, n3]]
                 )
 
             edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
-            edge_index = coalesce(edge_index)  # Nettoyage des doublons
+            # On nettoie les doublons
+            edge_index = coalesce(edge_index)
 
-            # 5. Création de l'objet Data
-            data = Data(x=x, edge_index=edge_index, y=y)
+            # --- CALCUL CRITIQUE DES ATTRIBUTS D'ARÊTE ---
+            # On calcule le vecteur distance réel (en mètres) entre les nœuds connectés
+            row, col = edge_index
+            # pos_physical est en mètres
+            edge_vector = pos_physical[col] - pos_physical[row]  # [dx, dy]
+
+            # On ajoute aussi la longueur (norme) comme feature d'arête
+            edge_len = torch.norm(edge_vector, dim=1, keepdim=True)
+            # edge_attr : [dx, dy, length]
+            edge_attr = torch.cat([edge_vector, edge_len], dim=1)
+
+            # On crée l'objet Data avec edge_attr
+            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
             data.sim_id = int(sim_id)
-
             data_list.append(data)
 
-        # Sauvegarde optimisée pour InMemoryDataset
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
-        print(f"Dataset traité sauvegardé dans {self.processed_paths[0]}")
+        print(f"Dataset sauvegardé : {self.processed_paths[0]}")
 
 
 if __name__ == "__main__":
-    # Utilisation :
-    # On suppose que db.csv et connectivity.csv sont dans le dossier actuel '.'
-    # Le dataset sera créé dans un dossier 'data_processed'
-    try:
-        dataset = PlateHoleDataset(root="data/")
-
-        print("\n--- Infos Dataset ---")
-        print(f"Nombre de simulations : {len(dataset)}")
-        print(f"Nombre de features : {dataset.num_features}")
-
-        # Exemple d'accès
-        first_graph = dataset[0]
-        print(
-            f"Premier graphe : {first_graph.num_nodes} nœuds, {first_graph.num_edges} arêtes"
-        )
-
-    except Exception as e:
-        print(f"Erreur lors de la création du dataset : {e}")
+    PlateHoleDataset(root="data/")

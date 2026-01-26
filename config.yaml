@@ -15,12 +15,20 @@ model:
   layers: 12        # Réduit de 10 à 6 (plus stable pour la mémoire)
 
 training:
-  epochs: 50             
+  epochs: 100             
   batch_size: 16     # RÉDUIT de 32 à 4 (Indispensable pour ta GPU 6Go)
   learning_rate: 0.001    
   data_weight: 1.0        
-  physics_weight: 0.5    
+  physics_weight: 5.0
 
 env:
   device: "cuda"          
   save_path: "./models"
+
+normalization:
+  x: 2.5            # Longueur max typique
+  y: 1.2            # Hauteur max typique
+  E: 210.0e9          # Module d'Young max (en GPa)
+  nu: 0.5           # Coef Poisson max
+  force: 1e7        # Force max (en Newtons)
+  target_scale: 1000.0 # m -> mm (pour les déplacements u, v)
