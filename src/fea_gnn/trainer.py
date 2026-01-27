@@ -15,6 +15,7 @@ def calculate_pinn_loss(pred_u, data, weight_physics):
     """
     PINN Loss stabilisée pour éviter l'enroulement (curling).
     Formulation par équilibre des forces par nœud.
+    Entièrement normalisée pour éviter les explosions de gradient.
     """
     if weight_physics <= 1e-7:
         return torch.tensor(0.0, device=pred_u.device)
@@ -29,41 +30,43 @@ def calculate_pinn_loss(pred_u, data, weight_physics):
     else:
         edge_len = torch.ones_like(E)
 
-    # 2. Calcul des déformations relatives (Strain)
+    # 2. Calcul des déformations relatives (Strain) - NORMALISÉ
     diff_u = pred_u[row] - pred_u[col]
-    strain = diff_u / edge_len
+    strain = diff_u / (edge_len + 1e-8)
 
-    # 3. Force Interne (Loi de Hooke simplifiée)
-    # On utilise une raideur k = E / L
-    k = E / edge_len
+    # 3. Force Interne (Loi de Hooke simplifiée) - SCALING RÉDUIT
+    # On réduit fortement le scaling pour éviter les gradients explosifs
+    k = (E / edge_len) * 0.01  # 0.01 au lieu de 1.0
     f_internal_edges = -k * diff_u
 
     # --- AJOUT DE L'EFFET DE POISSON STABILISÉ ---
-    # On réduit l'effet de Poisson PINN au minimum (0.05) pour éviter les torsions
-    # L'IA apprendra l'essentiel du Poisson via les données FEniCS
+    # On réduit l'effet de Poisson PINN au minimum pour éviter les torsions
     strain_x = strain[:, 0].view(-1, 1)
     strain_y = strain[:, 1].view(-1, 1)
     f_poisson = torch.cat([-nu * strain_y, -nu * strain_x], dim=1) * k * 0.05
 
     total_edge_force = f_internal_edges + f_poisson
 
-    # 4. Agrégation (Newton : Somme des forces sur chaque nœud)
+    # 4. Agrégation (Newton : Somme des forces sur chaque nœud) - NORMALISÉ
     f_total_nodes = torch.zeros_like(pred_u)
     f_total_nodes.index_add_(0, row, total_edge_force)
+    # Normaliser par le nombre de nœuds pour éviter les variations de magnitude
+    f_total_nodes = f_total_nodes / (pred_u.shape[0] + 1e-8)
 
-    # 5. Équilibre avec Force Externe
-    # On utilise le facteur d'équilibrage ~15.0
+    # 5. Équilibre avec Force Externe - NORMALISÉ
     f_ext = data.x[:, 4:6] * 15.0
+    f_ext = f_ext / (pred_u.shape[0] + 1e-8)
 
     # Résidu d'équilibre : F_int + F_ext = 0
-    # On utilise Huber pour ignorer les nœuds aberrants (comme ceux qui s'enroulent)
-    res_equilibre = F.huber_loss(f_total_nodes, f_ext, delta=1.0)
+    # On utilise Huber avec delta réduit pour ignorer les nœuds aberrants
+    res_equilibre = F.huber_loss(f_total_nodes, f_ext, delta=0.1)
 
-    # 6. Conditions aux limites (Fixations murales)
+    # 6. Conditions aux limites (Fixations murales) - NORMALISÉ
     is_fixed = data.x[:, 6].view(-1, 1)
     boundary_loss = torch.mean((is_fixed * pred_u) ** 2)
 
-    return (res_equilibre + 20.0 * boundary_loss) * weight_physics
+    # Retourner la perte déjà divisée par weight_physics pour contrôle fin
+    return (res_equilibre + 2.0 * boundary_loss) * weight_physics
 
 
 def train_model():
@@ -98,8 +101,8 @@ def train_model():
 
     epochs = cfg["training"]["epochs"]
     target_phys_weight = cfg["training"].get(
-        "physics_weight", 0.01
-    )  # On baisse le poids physique
+        "physics_weight", 0.05
+    )
 
     for epoch in range(epochs):
         model.train()
@@ -107,11 +110,10 @@ def train_model():
         total_data_loss = 0
         total_phys_loss = 0
 
-        # Curriculum : On laisse les données diriger pendant 50 époques
-        if epoch < 50:
-            current_p_weight = 0.0
-        else:
-            current_p_weight = target_phys_weight
+        # Curriculum PROGRESSIF : montée douce du poids physique
+        # Lieu de passer brutalement de 0 à 0.05 à l'époque 50,
+        # on monte graduellement sur 100 époques
+        current_p_weight = target_phys_weight * (epoch / epochs)
 
         for data in loader:
             data = data.to(device)
