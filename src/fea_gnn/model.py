@@ -9,11 +9,19 @@ class GlobalContextLayer(nn.Module):
 
     def __init__(self, dim):
         super().__init__()
+        # Encodeur des features locales avant pooling
         self.node_to_global = nn.Sequential(
-            nn.Linear(dim, dim), nn.LeakyReLU(0.2), nn.Linear(dim, dim)
+            nn.Linear(dim, dim), nn.GELU(), nn.Linear(dim, dim)
         )
-        # Correction : On accepte 2*dim car on concatène Mean et Max pooling
-        self.global_to_node = nn.Sequential(nn.Linear(dim * 2, dim), nn.Sigmoid())
+
+        # Projection du contexte global vers les nœuds
+        # MODIFICATION : On retire la Sigmoid qui écrasait le signal entre 0 et 1.
+        # On utilise une projection linéaire pour permettre des ajustements positifs ou négatifs.
+        self.global_to_node = nn.Sequential(
+            nn.Linear(dim * 2, dim),
+            nn.GELU(),
+            nn.Linear(dim, dim),  # Sortie linéaire pour l'addition résiduelle
+        )
 
     def forward(self, x, batch):
         # x: [N, dim], batch: [N] (indique à quelle sim appartient chaque nœud)
@@ -28,11 +36,13 @@ class GlobalContextLayer(nn.Module):
         # [BatchSize, dim * 2]
         global_summary = torch.cat([g_mean, g_max], dim=1)
 
-        # 3. On rediffuse l'info globale à chaque nœud via une porte
-        gate = self.global_to_node(global_summary)  # [BatchSize, dim]
+        # 3. On rediffuse l'info globale à chaque nœud
+        # context : [BatchSize, dim]
+        context = self.global_to_node(global_summary)
 
-        # Indexation par batch pour revenir à [N, dim]
-        return x * gate[batch]
+        # MODIFICATION MAJEURE : Addition (Skip Connection) au lieu de multiplication.
+        # Cela permet au contexte d'informer le nœud sans l'uniformiser.
+        return x + context[batch]
 
 
 class MessageLayer(MessagePassing):
@@ -41,14 +51,17 @@ class MessageLayer(MessagePassing):
     def __init__(self, dim):
         # On agrège par somme pour respecter la nature additive des forces
         super().__init__(aggr="add")
+
+        # Remplacement de LeakyReLU par GELU pour plus de fluidité
         self.msg_mlp = nn.Sequential(
             nn.Linear(dim * 2, dim),
-            nn.LeakyReLU(0.2),
+            nn.GELU(),
             nn.LayerNorm(dim),
             nn.Linear(dim, dim),
         )
+
         self.up_mlp = nn.Sequential(
-            nn.Linear(dim * 2, dim), nn.LeakyReLU(0.2), nn.LayerNorm(dim)
+            nn.Linear(dim * 2, dim), nn.GELU(), nn.LayerNorm(dim)
         )
 
     def forward(self, x, edge_index):
@@ -80,10 +93,11 @@ class HybridPhysicsGNN(nn.Module):
             [GlobalContextLayer(hidden_dim) for _ in range(n_layers)]
         )
 
+        # Décodeur final
         self.decoder = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, 2),  # Sortie : ux, uy
+            nn.GELU(),  # Activation plus douce
+            nn.Linear(hidden_dim, 2),  # Sortie brute (ux, uy) - PAS D'ACTIVATION ICI
         )
 
     def forward(self, data):
