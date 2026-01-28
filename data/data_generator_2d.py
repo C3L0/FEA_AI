@@ -151,7 +151,7 @@ def main():
     size = comm.size
 
     # Nombre de simulations (Ajustez selon vos besoins, ex: 250 ou 500)
-    n_samples_total = 250
+    n_samples_total = 600
     n_samples_local = n_samples_total // size
     rng = np.random.default_rng(42 + rank)
 
