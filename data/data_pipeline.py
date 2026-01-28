@@ -78,6 +78,7 @@ class PlateHoleDataset(InMemoryDataset):
 
             # Topology (Vectorisée)
             cells = topo_sim[["n1", "n2", "n3"]].to_numpy(dtype=int)
+            face = torch.tensor(cells, dtype=torch.long).t().contiguous()
             idx_pairs = [[0, 1], [1, 0], [1, 2], [2, 1], [2, 0], [0, 2]]
             edges_list = [cells[:, p] for p in idx_pairs]
             all_edges = np.vstack(edges_list)
@@ -91,7 +92,7 @@ class PlateHoleDataset(InMemoryDataset):
             edge_len = torch.norm(edge_vector, dim=1, keepdim=True)
             edge_attr = torch.cat([edge_vector, edge_len], dim=1)
 
-            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y, face=face)
             data.sim_id = int(sim_id)
             data_list.append(data)
 
