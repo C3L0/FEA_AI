@@ -1,99 +1,107 @@
-import os
-
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
 import numpy as np
 import torch
-
-from src.fea_gnn.utils import load_config
 
 
 def plot_fea_comparison(model, dataset, device, sample_idx=0, amp_factor=None):
     """
-    Visualisation corrigée avec conversion d'unités propre.
+    Generates a professional side-by-side comparison of Ground Truth vs Prediction.
+    Uses 'Quad' elements for a realistic FEA look.
     """
-    cfg = load_config()
-    norm = cfg["normalization"]
-
     model.eval()
-    data = dataset[sample_idx].to(device)
 
-    if not hasattr(data, "batch") or data.batch is None:
-        data.batch = torch.zeros(data.num_nodes, dtype=torch.long, device=device)
+    # 1. Prepare Data
+    test_x, test_y_gt = dataset[sample_idx]
 
     with torch.no_grad():
-        raw_pred = model(data).cpu().numpy()
+        # Add batch dim, move to GPU, predict, remove batch dim, move to CPU
+        raw_pred = model(test_x.unsqueeze(0).to(device)).squeeze(0).cpu().numpy()
 
-    # --- DÉ-NORMALISATION GÉOMÉTRIE ---
-    coords_m = data.x[:, 0:2].cpu().numpy()
-    coords_m[:, 0] *= float(norm["x"])
-    coords_m[:, 1] *= float(norm["y"])
+    # 2. Handle Scaling (Crucial: Convert back to Meters)
+    # The model predicts x1000 values, we need real physics units for plotting
+    SCALE = 1000.0
+    pred_disp_m = raw_pred / SCALE
+    gt_disp_m = test_y_gt.numpy() / SCALE
 
-    # Sorties u, v (déjà en mm via target_scale=1000 dans le pipeline)
-    gt_disp_mm = data.y.cpu().numpy()
-    pred_disp_mm = raw_pred
+    # 3. Geometry & Material Info
+    coords = dataset.coords
+    nx, ny = dataset.nx, dataset.ny
 
-    # --- CORRECTION GPa ---
-    # data.x[:, 2] est ~1.0. norm['E'] est 210e9.
-    # (1.0 * 210e9) / 1e9 = 210 GPa.
-    E_val_gpa = (data.x[:, 2].mean().item() * float(norm["E"])) / 1e9
+    # Extract material properties for title (E is at index 3, nu at index 4)
+    E_val = test_x[0, 3].item() * 210.0  # Un-normalize (assuming max 210 GPa)
+    nu_val = test_x[0, 4].item() * 0.5  # Un-normalize (assuming max 0.5)
 
-    # --- AMPLIFICATION ---
-    x_coords, y_coords = coords_m[:, 0], coords_m[:, 1]
+    # 4. Auto-Amplification Calculation
     if amp_factor is None:
-        # On se base sur FEniCS pour l'amplification stable
-        max_gt_m = np.max(np.linalg.norm(gt_disp_mm, axis=1)) / 1000.0
-        H = np.max(y_coords) - np.min(y_coords)
-        amp_factor = (H * 0.15) / max_gt_m if max_gt_m > 1e-9 else 1.0
+        max_disp = np.max(np.linalg.norm(gt_disp_m, axis=1))
+        # Target: Max displacement should look like ~15% of beam length
+        if max_disp < 1e-9:
+            max_disp = 1.0  # Avoid div/0
+        amp_factor = (dataset.length * 0.15) / max_disp
 
-    triang = mtri.Triangulation(x_coords, y_coords)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), dpi=120)
+    print(
+        f"[Visualizer] Sample {sample_idx} | E={E_val:.1f} GPa | Amplification: x{amp_factor:.1f}"
+    )
 
-    def draw_structure(ax, disp_mm, title, color_map, vmin, vmax):
-        disp_m = disp_mm / 1000.0
-        x_def = x_coords + disp_m[:, 0] * amp_factor
-        y_def = y_coords + disp_m[:, 1] * amp_factor
-        mag_mm = np.linalg.norm(disp_mm, axis=1)
+    # 5. Plotting Logic
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8))
 
-        tpc = ax.tripcolor(
-            x_def,
-            y_def,
-            triang.triangles,
-            mag_mm,
-            shading="flat",
-            cmap=color_map,
-            vmin=vmin,
-            vmax=vmax,
-        )
-        ax.triplot(x_def, y_def, triang.triangles, "k-", linewidth=0.1, alpha=0.15)
-        ax.set_title(title, fontsize=13, fontweight="bold")
+    def _draw_mesh_on_ax(ax, displacements, title, cmap_name):
+        # Calculate deformed positions
+        deformed_pos = coords + displacements * amp_factor
+        magnitude = np.linalg.norm(displacements, axis=1)
+
+        # Fixed Plot Limits (to keep scale consistent)
+        ax.set_xlim(-0.2, dataset.length * 1.2)
+        ax.set_ylim(-dataset.height * 2.0, dataset.height * 2.0)
+
+        # Draw Quads (Elements)
+        for i in range(ny - 1):
+            for j in range(nx - 1):
+                # Map grid indices to linear indices
+                # (i, j) -> top-left of the quad
+                n1 = i * nx + j
+                n2 = i * nx + (j + 1)
+                n3 = (i + 1) * nx + (j + 1)
+                n4 = (i + 1) * nx + j
+
+                quad_points = [
+                    deformed_pos[n1],
+                    deformed_pos[n2],
+                    deformed_pos[n3],
+                    deformed_pos[n4],
+                ]
+
+                # Color based on average displacement of the 4 nodes
+                avg_mag = np.mean(
+                    [magnitude[n1], magnitude[n2], magnitude[n3], magnitude[n4]]
+                )
+                norm_mag = avg_mag / (np.max(magnitude) + 1e-9)
+
+                poly = patches.Polygon(
+                    quad_points,
+                    closed=True,
+                    linewidth=0.5,
+                    edgecolor="black",
+                    facecolor=plt.cm.get_cmap(cmap_name)(norm_mag),
+                    alpha=0.85,
+                )
+                ax.add_patch(poly)
+
+        ax.set_title(title, fontsize=12, fontweight="bold")
         ax.set_aspect("equal")
-        ax.axis("off")
-        return tpc
 
-    # On utilise la même échelle de couleur pour comparer honnêtement
-    vmax = np.max(gt_disp_mm)
-    vmin = 0
+        # Colorbar
+        sm = plt.cm.ScalarMappable(
+            cmap=cmap_name, norm=plt.Normalize(vmin=0, vmax=np.max(magnitude))
+        )
+        plt.colorbar(sm, ax=ax, label="Displacement (m)", shrink=0.8)
 
-    im1 = draw_structure(
-        ax1, gt_disp_mm, "VÉRITÉ TERRAIN (FEniCS)", "Blues", vmin, vmax
-    )
-    plt.colorbar(im1, ax=ax1, label="Déplacement (mm)", fraction=0.02)
+    # Draw both
+    _draw_mesh_on_ax(ax1, gt_disp_m, f"Ground Truth (FEA)", "Blues")
+    _draw_mesh_on_ax(ax2, pred_disp_m, f"GNN Prediction", "Reds")
 
-    error_mm = np.mean(np.linalg.norm(gt_disp_mm - pred_disp_mm, axis=1))
-    im2 = draw_structure(
-        ax2,
-        pred_disp_mm,
-        f"PRÉDICTION GNN (Erreur moy: {error_mm:.4f} mm)",
-        "Reds",
-        vmin,
-        vmax,
-    )
-    plt.colorbar(im2, ax=ax2, label="Déplacement (mm)", fraction=0.02)
-
-    plt.suptitle(
-        f"Analyse Finale | Matériau: {E_val_gpa:.1f} GPa\n(Déformations amplifiées x{amp_factor:.1f})",
-        fontsize=15,
-    )
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.suptitle(f"Material: E={E_val:.1f} GPa, ν={nu_val:.2f}", fontsize=14)
+    plt.tight_layout()
     plt.show()

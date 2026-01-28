@@ -1,305 +1,132 @@
-import csv
 import os
+import time
 
 import torch
 import torch.nn.functional as F
-from torch_geometric.loader import DataLoader
+import yaml
+from torch.utils.data import DataLoader
 
 # Imports internes
-from src.fea_gnn.data_loader import get_dataset
+from src.fea_gnn.data_loader import CantileverMeshDataset
 from src.fea_gnn.model import HybridPhysicsGNN
 from src.fea_gnn.utils import load_config
 
 
-def calculate_pinn_loss(pred_u, data, weight_physics):
+def calculate_pinn_loss(pred_u, edge_index, edge_attr, features, weight_physics):
     """
-    PINN Loss stabilisée pour éviter l'enroulement (curling).
-    Formulation par équilibre des forces par nœud.
-    Entièrement normalisée pour éviter les explosions de gradient.
+    Calcule la pénalité physique (PINN).
+    Force la continuité et le respect du module d'élasticité E.
     """
-    if weight_physics <= 1e-7:
-        return torch.tensor(0.0, device=pred_u.device)
+    batch_size = pred_u.shape[0]
+    total_phys_loss = 0
+    row, col = edge_index
 
-    row, col = data.edge_index
-    E = data.x[row, 2].view(-1, 1)
-    nu = data.x[row, 3].view(-1, 1)
+    for b in range(batch_size):
+        u = pred_u[b]  # Déplacements prédits [N, 2]
+        feat = features[b]  # Caractéristiques [N, 5]
 
-    # 1. Géométrie des arêtes (dist_x, dist_y, length)
-    if data.edge_attr is not None and data.edge_attr.shape[1] >= 3:
-        edge_len = data.edge_attr[:, 2].view(-1, 1) + 1e-6
-    else:
-        edge_len = torch.ones_like(E)
+        # 1. Énergie de déformation : On veut que les voisins bougent de façon cohérente
+        # Le module de Young E est à l'index 3
+        E = feat[row, 3].unsqueeze(1)
+        diff_u = u[row] - u[col]
 
-    # 2. Calcul des déformations relatives (Strain) - NORMALISÉ
-    diff_u = pred_u[row] - pred_u[col]
-    strain = diff_u / (edge_len + 1e-8)
+        # On pénalise les variations brutales (le carré de la différence)
+        # C'est ce qui va "lisser" ta poutre et enlever l'aspect haché
+        strain_energy = torch.mean(E * torch.norm(diff_u, dim=1) ** 2)
 
-    # 3. Force Interne (Loi de Hooke simplifiée) - SCALING RÉDUIT
-    # On réduit fortement le scaling pour éviter les gradients explosifs
-    k = (E / edge_len) * 0.01  # 0.01 au lieu de 1.0
-    f_internal_edges = -k * diff_u
+        # 2. Travail des forces : Le déplacement doit être dans le sens de la force (Fy à l'index 1)
+        external_work = torch.mean(feat[:, 1] * u[:, 1])
 
-    # --- AJOUT DE L'EFFET DE POISSON STABILISÉ ---
-    # On réduit l'effet de Poisson PINN au minimum pour éviter les torsions
-    strain_x = strain[:, 0].view(-1, 1)
-    strain_y = strain[:, 1].view(-1, 1)
-    f_poisson = torch.cat([-nu * strain_y, -nu * strain_x], dim=1) * k * 0.05
+        # La physique cherche à minimiser (Énergie interne - Travail externe)
+        total_phys_loss += strain_energy - external_work
 
-    total_edge_force = f_internal_edges + f_poisson
-
-    # 4. Agrégation (Newton : Somme des forces sur chaque nœud) - NORMALISÉ
-    f_total_nodes = torch.zeros_like(pred_u)
-    f_total_nodes.index_add_(0, row, total_edge_force)
-    # Normaliser par le nombre de nœuds pour éviter les variations de magnitude
-    f_total_nodes = f_total_nodes / (pred_u.shape[0] + 1e-8)
-
-    # 5. Équilibre avec Force Externe - NORMALISÉ
-    f_ext = data.x[:, 4:6] * 15.0
-    f_ext = f_ext / (pred_u.shape[0] + 1e-8)
-
-    # Résidu d'équilibre : F_int + F_ext = 0
-    # On utilise Huber avec delta réduit pour ignorer les nœuds aberrants
-    res_equilibre = F.huber_loss(f_total_nodes, f_ext, delta=0.1)
-
-    # 6. Conditions aux limites (Fixations murales) - NORMALISÉ
-    is_fixed = data.x[:, 6].view(-1, 1)
-    boundary_loss = torch.mean((is_fixed * pred_u) ** 2)
-
-    # Retourner la perte déjà divisée par weight_physics pour contrôle fin
-    return (res_equilibre + 2.0 * boundary_loss) * weight_physics
+    return (total_phys_loss / batch_size) * weight_physics
 
 
 def train_model():
+    # 1. Configuration
     cfg = load_config()
     device = torch.device(cfg["env"]["device"] if torch.cuda.is_available() else "cpu")
-    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+    print(f"Démarrage de l'entraînement Hybride sur : {device}")
 
-    print(f"Démarrage de l'entraînement de stabilisation sur : {device}")
-
-    dataset = get_dataset(root="data/")
+    # 2. Données
+    dataset = CantileverMeshDataset(
+        num_samples=1000,
+        nx=cfg["geometry"]["nx"],
+        ny=cfg["geometry"]["ny"],
+        length=cfg["geometry"]["length"],
+        height=cfg["geometry"]["height"],
+        E_range=cfg["material"]["youngs_modulus_range"],
+        nu_range=cfg["material"]["poissons_ratio_range"],
+    )
     loader = DataLoader(dataset, batch_size=cfg["training"]["batch_size"], shuffle=True)
 
+    # 3. Modèle Hybride (Local + Global)
     model = HybridPhysicsGNN(
+        edge_index=dataset.edge_index,
+        edge_attr=dataset.edge_attr,
         hidden_dim=cfg["model"]["hidden_dim"],
-        n_layers=cfg["model"]["layers"],
+        layers=cfg["model"]["layers"],
         input_dim=cfg["model"]["input_dim"],
     ).to(device)
 
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg["training"]["learning_rate"]
     )
-    # Scheduler plus réactif
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=10, factor=0.5
+        optimizer, mode="min", patience=15, factor=0.5
     )
 
-    log_path = os.path.join(cfg["env"]["save_path"], "training_history.csv")
-    os.makedirs(cfg["env"]["save_path"], exist_ok=True)
-    with open(log_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["epoch", "total_loss", "data_loss", "phys_loss", "lr"])
-
+    # 4. Boucle d'entraînement
     epochs = cfg["training"]["epochs"]
-    target_phys_weight = cfg["training"].get(
+    p_weight = cfg["training"].get(
         "physics_weight", 0.05
-    )
+    )  # On récupère le poids depuis la config
 
     for epoch in range(epochs):
         model.train()
         total_epoch_loss = 0
-        total_data_loss = 0
-        total_phys_loss = 0
 
-        # Curriculum PROGRESSIF : montée douce du poids physique
-        # Lieu de passer brutalement de 0 à 0.05 à l'époque 50,
-        # on monte graduellement sur 100 époques
-        current_p_weight = target_phys_weight * (epoch / epochs)
-
-        for data in loader:
-            data = data.to(device)
+        for batch_x, batch_y in loader:
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
             optimizer.zero_grad()
-            out = model(data)
 
-            # Perte de données L1 (Forte sensibilité)
-            loss_data = F.l1_loss(out, data.y)
-            # Perte physique (Stabilisatrice)
-            loss_phys = calculate_pinn_loss(out, data, current_p_weight)
+            # Prédiction
+            out = model(batch_x)
 
+            # --- CALCUL DES PERTES ---
+            # Perte 1 : Erreur par rapport aux données (MSE)
+            loss_data = F.mse_loss(out, batch_y)
+
+            # Perte 2 : Erreur Physique (PINN)
+            loss_phys = calculate_pinn_loss(
+                out, model.edge_index, model.edge_attr, batch_x, p_weight
+            )
+
+            # Somme des deux
             total_loss = loss_data + loss_phys
-            total_loss.backward()
 
-            # Clipping de gradient TRÈS strict (0.1) pour empêcher le maillage de se plier
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             total_epoch_loss += total_loss.item()
-            total_data_loss += loss_data.item()
-            total_phys_loss += loss_phys.item()
 
         avg_loss = total_epoch_loss / len(loader)
         scheduler.step(avg_loss)
 
         if epoch % 10 == 0:
             print(
-                f"Époque {epoch:03d} | Total: {avg_loss:.6f} | Data: {total_data_loss / len(loader):.6f} | Phys: {total_phys_loss / len(loader):.6f}"
+                f"Époque {epoch:03d} | Loss Totale: {avg_loss:.6f} (Data: {loss_data.item():.6f}, Phys: {loss_phys.item():.6f})"
             )
 
-    save_file = os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
-    torch.save(model.state_dict(), save_file)
-    print(f"Entraînement terminé. Modèle sauvegardé sous : {save_file}")
+    # 5. Sauvegarde
+    os.makedirs(cfg["env"]["save_path"], exist_ok=True)
+    torch.save(
+        model.state_dict(), os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
+    )
+    print("Entraînement terminé et modèle sauvegardé.")
 
 
 if __name__ == "__main__":
     train_model()
-
-# import csv
-# import os
-#
-# import torch
-# import torch.nn.functional as F
-# from torch_geometric.loader import DataLoader
-#
-# # Imports internes
-# from src.fea_gnn.data_loader import get_dataset
-# from src.fea_gnn.model import HybridPhysicsGNN
-# from src.fea_gnn.utils import load_config
-#
-#
-# def calculate_pinn_loss(pred_u, data, weight_physics):
-#     """
-#     PINN Loss stabilisée pour éviter l'enroulement (curling).
-#     Formulation par équilibre des forces par nœud.
-#     """
-#     if weight_physics <= 1e-7:
-#         return torch.tensor(0.0, device=pred_u.device)
-#
-#     row, col = data.edge_index
-#     E = data.x[row, 2].view(-1, 1)
-#     nu = data.x[row, 3].view(-1, 1)
-#
-#     # 1. Géométrie des arêtes (dist_x, dist_y, length)
-#     if data.edge_attr is not None and data.edge_attr.shape[1] >= 3:
-#         edge_len = data.edge_attr[:, 2].view(-1, 1) + 1e-6
-#     else:
-#         edge_len = torch.ones_like(E)
-#
-#     # 2. Calcul des déformations relatives (Strain)
-#     diff_u = pred_u[row] - pred_u[col]
-#     strain = diff_u / edge_len
-#
-#     # 3. Force Interne (Loi de Hooke simplifiée)
-#     # On utilise une raideur k = E / L
-#     k = E / edge_len
-#     f_internal_edges = -k * diff_u
-#
-#     # --- AJOUT DE L'EFFET DE POISSON STABILISÉ ---
-#     # On réduit l'effet de Poisson PINN au minimum (0.05) pour éviter les torsions
-#     # L'IA apprendra l'essentiel du Poisson via les données FEniCS
-#     strain_x = strain[:, 0].view(-1, 1)
-#     strain_y = strain[:, 1].view(-1, 1)
-#     f_poisson = torch.cat([-nu * strain_y, -nu * strain_x], dim=1) * k * 0.05
-#
-#     total_edge_force = f_internal_edges + f_poisson
-#
-#     # 4. Agrégation (Newton : Somme des forces sur chaque nœud)
-#     f_total_nodes = torch.zeros_like(pred_u)
-#     f_total_nodes.index_add_(0, row, total_edge_force)
-#
-#     # 5. Équilibre avec Force Externe
-#     # On utilise le facteur d'équilibrage ~15.0
-#     f_ext = data.x[:, 4:6] * 15.0
-#
-#     # Résidu d'équilibre : F_int + F_ext = 0
-#     # On utilise Huber pour ignorer les nœuds aberrants (comme ceux qui s'enroulent)
-#     res_equilibre = F.huber_loss(f_total_nodes, f_ext, delta=1.0)
-#
-#     # 6. Conditions aux limites (Fixations murales)
-#     is_fixed = data.x[:, 6].view(-1, 1)
-#     boundary_loss = torch.mean((is_fixed * pred_u) ** 2)
-#
-#     return (res_equilibre + 20.0 * boundary_loss) * weight_physics
-#
-#
-# def train_model():
-#     cfg = load_config()
-#     device = torch.device(cfg["env"]["device"] if torch.cuda.is_available() else "cpu")
-#     os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-#
-#     print(f"Démarrage de l'entraînement de stabilisation sur : {device}")
-#
-#     dataset = get_dataset(root="data/")
-#     loader = DataLoader(dataset, batch_size=cfg["training"]["batch_size"], shuffle=True)
-#
-#     model = HybridPhysicsGNN(
-#         hidden_dim=cfg["model"]["hidden_dim"],
-#         n_layers=cfg["model"]["layers"],
-#         input_dim=cfg["model"]["input_dim"],
-#     ).to(device)
-#
-#     optimizer = torch.optim.Adam(
-#         model.parameters(), lr=cfg["training"]["learning_rate"]
-#     )
-#     # Scheduler plus réactif
-#     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-#         optimizer, mode="min", patience=10, factor=0.5
-#     )
-#
-#     log_path = os.path.join(cfg["env"]["save_path"], "training_history.csv")
-#     os.makedirs(cfg["env"]["save_path"], exist_ok=True)
-#     with open(log_path, "w", newline="") as f:
-#         writer = csv.writer(f)
-#         writer.writerow(["epoch", "total_loss", "data_loss", "phys_loss", "lr"])
-#
-#     epochs = cfg["training"]["epochs"]
-#     target_phys_weight = cfg["training"].get(
-#         "physics_weight", 0.01
-#     )  # On baisse le poids physique
-#
-#     for epoch in range(epochs):
-#         model.train()
-#         total_epoch_loss = 0
-#         total_data_loss = 0
-#         total_phys_loss = 0
-#
-#         # Curriculum : On laisse les données diriger pendant 50 époques
-#         if epoch < 50:
-#             current_p_weight = 0.0
-#         else:
-#             current_p_weight = target_phys_weight
-#
-#         for data in loader:
-#             data = data.to(device)
-#             optimizer.zero_grad()
-#             out = model(data)
-#
-#             # Perte de données L1 (Forte sensibilité)
-#             loss_data = F.l1_loss(out, data.y)
-#             # Perte physique (Stabilisatrice)
-#             loss_phys = calculate_pinn_loss(out, data, current_p_weight)
-#
-#             total_loss = loss_data + loss_phys
-#             total_loss.backward()
-#
-#             # Clipping de gradient TRÈS strict (0.1) pour empêcher le maillage de se plier
-#             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
-#             optimizer.step()
-#
-#             total_epoch_loss += total_loss.item()
-#             total_data_loss += loss_data.item()
-#             total_phys_loss += loss_phys.item()
-#
-#         avg_loss = total_epoch_loss / len(loader)
-#         scheduler.step(avg_loss)
-#
-#         if epoch % 10 == 0:
-#             print(
-#                 f"Époque {epoch:03d} | Total: {avg_loss:.6f} | Data: {total_data_loss / len(loader):.6f} | Phys: {total_phys_loss / len(loader):.6f}"
-#             )
-#
-#     save_file = os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
-#     torch.save(model.state_dict(), save_file)
-#     print(f"Entraînement terminé. Modèle sauvegardé sous : {save_file}")
-#
-#
-# if __name__ == "__main__":
-#     train_model()
