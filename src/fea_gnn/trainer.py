@@ -111,7 +111,7 @@ def train_model():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=15, factor=0.5
+        optimizer, mode="min", patience=25, factor=0.5
     )
 
     log_path = os.path.join(cfg["env"]["save_path"], "training_history.csv")

@@ -1,6 +1,10 @@
-from os import wait
+import io
+import os
+import sys
+import time
 
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -8,270 +12,346 @@ import plotly.graph_objects as go
 import streamlit as st
 import torch
 from scipy.stats import binned_statistic_2d
+from torch_geometric.data import Batch
 from torch_geometric.loader import DataLoader
+
+# --- IMPORTS PROJET ---
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.fea_gnn.data_loader import get_dataset
 from src.fea_gnn.model import HybridPhysicsGNN
-# Imports internes
 from src.fea_gnn.utils import load_config
 
-# Configuration de la page
-st.set_page_config(page_title="FEA-GNN Dashboard", layout="wide")
+# --- CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="FEA-GNN Analytics")
 
 
-# --- CHARGEMENT DES RESSOURCES (CACHÉ) ---
+# --- CHARGEMENT ---
 @st.cache_resource
 def load_resources():
     cfg = load_config()
-    device = torch.device(cfg["env"]["device"] if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Dataset
+    # Chargement dataset
     dataset = get_dataset(root="data/")
 
-    # Modèle
+    # Chargement modèle
     model = HybridPhysicsGNN(
         hidden_dim=cfg["model"]["hidden_dim"],
         n_layers=cfg["model"]["layers"],
         input_dim=cfg["model"]["input_dim"],
     ).to(device)
 
-    # Chargement des poids
-    path = f"{cfg['env']['save_path']}/gnn_hybrid_scaled.pth"
-    try:
-        model.load_state_dict(torch.load(path, map_location=device))
+    path = os.path.join(cfg["env"]["save_path"], "gnn_hybrid_scaled.pth")
+    # Fallback sur le nom standard si le scaled n'existe pas
+    if not os.path.exists(path):
+        path = os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
+
+    if os.path.exists(path):
+        try:
+            model.load_state_dict(
+                torch.load(path, map_location=device, weights_only=True)
+            )
+            status = "Modèle chargé avec succès (Mode Strict)."
+            status_type = "success"
+        except RuntimeError:
+            model.load_state_dict(
+                torch.load(path, map_location=device, weights_only=True), strict=False
+            )
+            status = "Attention : Désaccord d'architecture. Poids chargés en mode non-strict."
+            status_type = "warning"
+
         model.eval()
-    except FileNotFoundError:
-        st.error(f"Modèle introuvable : {path}")
-        return None, None, None, None
+    else:
+        status = f"Erreur: Modèle introuvable à {path}"
+        model = None
+        status_type = "error"
 
-    return model, dataset, cfg, device
+    return dataset, model, cfg, device, status, status_type
 
 
 @st.cache_data
-def load_history(cfg):
-    try:
-        return pd.read_csv(f"{cfg['env']['save_path']}/training_history.csv")
-    except FileNotFoundError:
-        return None
+def load_training_history(cfg):
+    path = os.path.join(cfg["env"]["save_path"], "training_history.csv")
+    if os.path.exists(path):
+        return pd.read_csv(path)
+    return None
 
 
-# --- FONCTION D'INFERENCE EN MASSE ---
+# --- ANALYSE STATISTIQUE (BATCH) ---
 @st.cache_data
-def run_batch_inference(_model, _dataset, _cfg, _device, num_samples=100):
-    """Exécute le modèle sur N échantillons et extrait les métriques et paramètres."""
+def run_batch_analysis_v3(_model, _dataset, _cfg, _device, num_samples=50):
+    """
+    Execute le modele sur un grand nombre d'echantillons pour extraire des statistiques globales.
+    Renommé en v3 pour invalider le cache Streamlit et forcer le recalcul des IDs.
+    """
     loader = DataLoader(_dataset, batch_size=1, shuffle=True)
-    results = []
-
-    # Stockage pour la heatmap globale
-    all_x, all_y, all_errors = [], [], []
-
     norm = _cfg["normalization"]
+
+    sim_stats = []
+    all_x, all_y, all_error_abs, all_error_rel = [], [], [], []
+
     count = 0
+    progress_bar = st.progress(0)
 
     with torch.no_grad():
-        for data in loader:
+        for i, data in enumerate(loader):
             if count >= num_samples:
                 break
+
             data = data.to(_device)
             pred = _model(data)
 
-            # --- CALCUL D'ERREUR ---
-            # Unités réelles (mm)
-            target_mm = data.y.cpu().numpy()
-            pred_mm = pred.cpu().numpy()
+            u_true = data.y.cpu().numpy()
+            u_pred = pred.cpu().numpy()
 
-            mae = np.mean(np.abs(pred_mm - target_mm))
-            mse = np.mean((pred_mm - target_mm) ** 2)
-            max_err = np.max(np.linalg.norm(pred_mm - target_mm, axis=1))
+            # Erreur
+            diff = u_true - u_pred
+            err_norm = np.linalg.norm(diff, axis=1)
+            true_norm = np.linalg.norm(u_true, axis=1)
 
-            # --- EXTRACTION PARAMÈTRES PHYSIQUES ---
-            # data.x : [x, y, E, nu, Fx, Fy, isFixed]
-            # On prend la moyenne des features sur le graphe car E, nu sont constants
-            E_gpa = data.x[:, 2].mean().item() * float(norm["E"]) / 1e9
-            nu = data.x[:, 3].mean().item() * float(norm["nu"])
+            mask_moving = true_norm > 1e-3
+            rel_error = np.zeros_like(err_norm)
+            rel_error[mask_moving] = (
+                err_norm[mask_moving] / true_norm[mask_moving]
+            ) * 100.0
 
-            # Force : on regarde les nœuds chargés (Fx != 0)
-            fx = data.x[:, 4] * float(norm["force"])
-            fy = data.x[:, 5] * float(norm["force"])
-            force_mag = torch.max(torch.sqrt(fx**2 + fy**2)).item()
+            # Parametres physiques
+            E_val = data.x[0, 2].item() * float(norm["E"]) / 1e9
+            nu_val = data.x[0, 3].item() * float(norm["nu"])
+            force_x = data.x[:, 4].abs().max().item() * float(norm["force"])
 
-            num_nodes = data.num_nodes
+            # --- EXTRACTION SECURISEE DE L'ID (Fix Plotly) ---
+            current_id = i
+            if hasattr(data, "sim_id"):
+                sid = data.sim_id
+                if isinstance(sid, torch.Tensor):
+                    current_id = int(sid.item())
+                elif isinstance(sid, (list, np.ndarray)):
+                    current_id = int(sid[0])
+                else:
+                    current_id = int(sid)
 
-            results.append(
+            sim_stats.append(
                 {
-                    "ID": int(data.sim_id[0]),
-                    "MAE (mm)": mae,
-                    "MSE (mm²)": mse,
-                    "Max Error (mm)": max_err,
-                    "Young (GPa)": E_gpa,
-                    "Poisson": nu,
-                    "Force (N)": force_mag,
-                    "Noeuds": num_nodes,
+                    "ID": current_id,
+                    "MAE (mm)": np.mean(err_norm),
+                    "MSE": np.mean(err_norm**2),
+                    "Max Error (mm)": np.max(err_norm),
+                    "Rel Error (%)": (
+                        np.mean(rel_error[mask_moving]) if np.any(mask_moving) else 0.0
+                    ),
+                    "Young (GPa)": E_val,
+                    "Poisson": nu_val,
+                    "Force (N)": force_x,
+                    "Noeuds": data.num_nodes,
                 }
             )
 
-            # --- DONNÉES SPATIALES POUR HEATMAP ---
-            # Coordonnées dé-normalisées (mètres)
+            # Spatiale
             coords = data.x[:, 0:2].cpu().numpy()
             coords[:, 0] *= float(norm["x"])
             coords[:, 1] *= float(norm["y"])
-
-            # Erreur locale (norme euclidienne)
-            local_err = np.linalg.norm(pred_mm - target_mm, axis=1)
-
             all_x.append(coords[:, 0])
             all_y.append(coords[:, 1])
-            all_errors.append(local_err)
+            all_error_abs.append(err_norm)
+            all_error_rel.append(rel_error)
 
             count += 1
+            progress_bar.progress(count / num_samples)
 
-    return (
-        pd.DataFrame(results),
-        np.concatenate(all_x),
-        np.concatenate(all_y),
-        np.concatenate(all_errors),
+    progress_bar.empty()
+
+    spatial_data = {
+        "x": np.concatenate(all_x),
+        "y": np.concatenate(all_y),
+        "err_abs": np.concatenate(all_error_abs),
+        "err_rel": np.concatenate(all_error_rel),
+    }
+
+    return pd.DataFrame(sim_stats), spatial_data
+
+
+# --- PLOTS ---
+def plot_spatial_heatmap(spatial_data, metric="err_abs", bins=(100, 45)):
+    """
+    Genere une heatmap avec un trou reellement vide (transparent/blanc).
+    """
+    x, y, z = spatial_data["x"], spatial_data["y"], spatial_data[metric]
+
+    # Calcul de la statistique sur une grille fixe
+    # Range aligné avec la géométrie physique (2.5m x 1.2m centrée en Y)
+    stat = binned_statistic_2d(
+        x, y, z, statistic="mean", bins=bins, range=[[0, 2.5], [-0.6, 0.6]]
     )
 
+    heatmap_data = stat.statistic.T
 
-# --- INTERFACE UTILISATEUR ---
+    # --- FIX TROU BLANC ---
+    # On masque les zones sans données (le trou + extérieur)
+    masked_data = np.ma.masked_invalid(heatmap_data)
 
-st.title("Dashboard d'Analyse GNN (Plaques Trouées)")
+    fig, ax = plt.subplots(figsize=(10, 5))
 
-model, dataset, cfg, device = load_resources()
+    # Utilisation de hot_r avec gestion explicite de la transparence pour les NaN
+    cmap = plt.cm.get_cmap("hot_r").copy()
+    cmap.set_bad(color="white", alpha=0)  # Alpha 0 = transparent
 
-if model is not None:
-    # Sidebar
-    st.sidebar.header("Paramètres d'Analyse")
-    num_samples = st.sidebar.slider("Nombre de simulations à tester", 10, 500, 50)
+    # Affichage avec interpolation "nearest" pour éviter le flou qui remplit le trou
+    im = ax.imshow(
+        masked_data,
+        origin="lower",
+        extent=[0, 2.5, -0.6, 0.6],
+        cmap=cmap,
+        aspect="equal",
+        interpolation="nearest",
+    )
 
-    # Chargement des données
-    with st.spinner(f"Inférence sur {num_samples} simulations..."):
-        df_results, x_flat, y_flat, err_flat = run_batch_inference(
-            model, dataset, cfg, device, num_samples
+    # On s'assure que l'arrière-plan de l'axe est bien blanc (ou transparent)
+    ax.set_facecolor("white")
+    # Optionnel: Supprimer le cadre noir pour faire plus propre
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    cbar = plt.colorbar(im, ax=ax)
+    label = "Erreur Absolue (mm)" if metric == "err_abs" else "Erreur Relative (%)"
+    cbar.set_label(label)
+
+    ax.set_title(f"Distribution Spatiale de l'Erreur")
+    ax.set_xlabel("Position X (m)")
+    ax.set_ylabel("Position Y (m)")
+
+    return fig
+
+
+def plot_individual_sample(model, dataset, device, sample_idx, scale_factor, norm_cfg):
+    data = dataset[sample_idx]
+    batch = Batch.from_data_list([data]).to(device)
+    with torch.no_grad():
+        pred = model(batch).cpu().numpy()
+    u_true = data.y.numpy()
+    pos = data.x[:, 0:2].numpy()
+    pos[:, 0] *= float(norm_cfg["x"])
+    pos[:, 1] *= float(norm_cfg["y"])
+    error = np.linalg.norm(u_true - pred, axis=1)
+    triang = tri.Triangulation(pos[:, 0], pos[:, 1])
+    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+    axs[0].triplot(triang, "k-", alpha=0.1)
+    pos_t = pos + (u_true / 1000.0) * scale_factor
+    pos_p = pos + (pred / 1000.0) * scale_factor
+    axs[0].triplot(
+        pos_t[:, 0], pos_t[:, 1], triang.triangles, "b-", alpha=0.5, label="Ref"
+    )
+    axs[0].triplot(
+        pos_p[:, 0], pos_p[:, 1], triang.triangles, "r--", alpha=0.8, label="GNN"
+    )
+    axs[0].legend()
+    axs[1].tripcolor(triang, error, cmap="inferno", shading="gouraud")
+    return fig
+
+
+# --- APP ---
+def main():
+    st.title("Tableau de Bord - Analyse GNN Mécanique")
+    dataset, model, cfg, device, status_msg, status_type = load_resources()
+
+    if model is None:
+        st.error(status_msg)
+        return
+
+    if status_type == "warning":
+        st.warning(status_msg)
+    else:
+        st.sidebar.success(status_msg)
+
+    n_anal = st.sidebar.slider("Simulations à analyser", 10, 500, 50)
+
+    # Appel de la fonction v3 pour forcer la mise à jour
+    df_raw, spatial_data = run_batch_analysis_v3(model, dataset, cfg, device, n_anal)
+
+    # --- FILTRAGE DES ABERRATIONS ---
+    st.sidebar.markdown("### 🧹 Filtres")
+    use_filter = st.sidebar.checkbox("Exclure les divergences", value=True)
+    if use_filter:
+        threshold = st.sidebar.number_input(
+            "Seuil Erreur Relative Max (%)", value=100.0
         )
+        df_stats = df_raw[df_raw["Rel Error (%)"] < threshold]
+        n_excluded = len(df_raw) - len(df_stats)
+        if n_excluded > 0:
+            st.sidebar.warning(f"{n_excluded} simulation(s) exclue(s) (>{threshold}%)")
+    else:
+        df_stats = df_raw
 
-    # --- TABS ---
-    tab1, tab2, tab3 = st.tabs(
-        ["Entraînement", "Analyse Paramétrique", "Erreur Spatiale"]
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["📊 Métriques", "🗺️ Espace", "📉 Training", "🔎 Détail"]
     )
 
-    # --- TAB 1: ENTRAÎNEMENT ---
     with tab1:
-        history = load_history(cfg)
-        if history is not None:
-            st.markdown("### Convergence du Modèle")
-
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=history["epoch"],
-                    y=history["total_loss"],
-                    name="Total Loss",
-                    line=dict(color="black"),
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=history["epoch"],
-                    y=history["data_loss"],
-                    name="Data Loss (MAE)",
-                    line=dict(dash="dash"),
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=history["epoch"],
-                    y=history["phys_loss"],
-                    name="Physics Loss",
-                    line=dict(dash="dot"),
-                )
-            )
-
-            fig.update_layout(
-                yaxis_type="log",
-                title="Évolution des Loss (Échelle Log)",
-                xaxis_title="Époque",
-                yaxis_title="Valeur",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-            col1, col2 = st.columns(2)
-            col1.metric("Dernière Data Loss", f"{history['data_loss'].iloc[-1]:.6f}")
-            col1.metric("Dernière Phys Loss", f"{history['phys_loss'].iloc[-1]:.6f}")
-        else:
-            st.warning("Pas d'historique d'entraînement trouvé.")
-
-    # --- TAB 2: CORRÉLATIONS ---
-    with tab2:
-        st.markdown("### Influence des Paramètres Physiques sur la Précision")
-        st.dataframe(df_results.describe())
-
-        col_x = st.selectbox(
-            "Paramètre X (Axe horizontal)",
-            ["Young (GPa)", "Poisson", "Force (N)", "Noeuds"],
-            index=0,
+        st.header("Performance Globale (Sur données filtrées)")
+        cols = st.columns(4)
+        # Utilisation de la médiane pour être robuste aux outliers restants
+        cols[0].metric("MAE Médiane", f"{df_stats['MAE (mm)'].median():.4f} mm")
+        cols[1].metric("MSE Médiane", f"{df_stats['MSE'].median():.2e}")
+        cols[2].metric(
+            "Err Max (Pire cas)", f"{df_stats['Max Error (mm)'].max():.4f} mm"
         )
-        col_y = st.selectbox(
-            "Métrique Y (Axe vertical)",
-            ["MAE (mm)", "Max Error (mm)", "MSE (mm²)"],
-            index=0,
-        )
+        cols[3].metric("Err Rel Médiane", f"{df_stats['Rel Error (%)'].median():.2f} %")
 
-        # Scatter Plot avec couleur pour une 3ème dimension
+        st.divider()
+        cx = st.selectbox(
+            "Paramètre X", ["Force (N)", "Young (GPa)", "Poisson", "Noeuds"]
+        )
+        cy = st.selectbox("Métrique Y", ["MAE (mm)", "Rel Error (%)", "Max Error (mm)"])
+
+        # Sécurité pour Plotly : vérifier que ID est bien là
+        h_data = ["ID"] if "ID" in df_stats.columns else None
+
         fig = px.scatter(
-            df_results,
-            x=col_x,
-            y=col_y,
-            color="Force (N)" if col_x != "Force (N)" else "Young (GPa)",
+            df_stats,
+            x=cx,
+            y=cy,
+            color="Young (GPa)",
             size="Noeuds",
-            hover_data=["ID"],
-            title=f"Corrélation : {col_y} vs {col_x}",
+            hover_data=h_data,
+            title=f"Corrélation : {cy} vs {cx}",
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.info(
-            "**Analyse :** Si les points montent vers la droite, cela signifie que le modèle a plus de mal avec les valeurs élevées de ce paramètre."
-        )
+    with tab2:
+        type_err = st.radio("Type", ["Absolue (mm)", "Relative (%)"], horizontal=True)
+        metric_key = "err_abs" if "Absolue" in type_err else "err_rel"
+        st.pyplot(plot_spatial_heatmap(spatial_data, metric=metric_key))
 
-    # --- TAB 3: HEATMAP SPATIALE ---
     with tab3:
-        st.markdown("### Carte Moyenne des Erreurs (Spatial Binning)")
-        st.write(
-            f"Cette carte agrège les erreurs de **{num_samples} formes différentes** en divisant l'espace en une grille régulière."
-        )
+        hist = load_training_history(cfg)
+        if hist is not None:
+            fig = px.line(
+                hist, x="epoch", y=["total_loss", "data_loss", "phys_loss"], log_y=True
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Pas d'historique.")
 
-        # Paramètres du Binning
-        bins_x = 50
-        bins_y = 20
+    with tab4:
+        col_sel, col_view = st.columns([1, 3])
+        with col_sel:
+            # On permet de choisir parmi les IDs disponibles dans le dataset global
+            sid = st.number_input("Index Simulation", 0, len(dataset) - 1, 0)
+            amp = st.slider("Amplification", 1.0, 2000.0, 500.0)
 
-        # Calcul de la statistique bivariée (Moyenne de l'erreur dans chaque case)
-        # On utilise les coordonnées réelles (m)
-        ret = binned_statistic_2d(
-            x_flat,
-            y_flat,
-            err_flat,
-            statistic="mean",
-            bins=[bins_x, bins_y],
-            range=[[0, 2.5], [-0.6, 0.6]],  # Bornes approximatives de la plaque
-        )
+            # Affichage rapide des propriétés
+            data_s = dataset[sid]
+            E_disp = data_s.x[0, 2] * float(cfg["normalization"]["E"]) / 1e9
+            st.info(f"Young: {E_disp:.1f} GPa")
 
-        # Affichage avec Matplotlib
-        fig, ax = plt.subplots(figsize=(10, 4))
-        im = ax.imshow(
-            ret.statistic.T,
-            origin="lower",
-            extent=[0, 2.5, -0.6, 0.6],
-            cmap="hot_r",  # Blanc = Erreur faible, Rouge/Noir = Erreur forte
-            aspect="equal",
-        )
-        plt.colorbar(im, label="Erreur Moyenne Absolue (mm)")
-        plt.title(
-            f"Distribution Spatiale de l'Erreur (Moyenne sur {num_samples} simulations)"
-        )
-        plt.xlabel("Position X (m)")
-        plt.ylabel("Position Y (m)")
-        st.pyplot(fig)
+        with col_view:
+            st.pyplot(
+                plot_individual_sample(
+                    model, dataset, device, sid, amp, cfg["normalization"]
+                )
+            )
 
-        st.warning(
-            "**Note :** Les zones blanches vides correspondent aux endroits où il n'y a jamais de matière (le trou central variable)."
-        )
+
+if __name__ == "__main__":
+    main()
