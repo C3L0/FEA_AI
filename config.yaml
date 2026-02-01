@@ -15,9 +15,9 @@ model:
   layers: 12        # Réduit de 10 à 6 (plus stable pour la mémoire)
 
 training:
-  epochs: 150             
+  epochs: 500             
   batch_size: 8     # RÉDUIT de 32 à 4 (Indispensable pour ta GPU 6Go)
-  learning_rate: 0.01    
+  learning_rate: 0.0005    
   data_weight: 1.0        
   physics_weight: 0.01
 

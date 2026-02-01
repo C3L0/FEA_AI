@@ -108,7 +108,9 @@ def train_model():
     ).to(device)
 
     # Learning Rate un peu plus élevé au début car les valeurs sont grandes
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=cfg["training"]["learning_rate"]
+    )
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=25, factor=0.5
