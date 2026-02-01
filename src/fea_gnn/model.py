@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_geometric.nn import (MessagePassing, global_max_pool,
+from torch_geometric.nn import (GATv2Conv, MessagePassing, global_max_pool,
                                 global_mean_pool)
 
 
@@ -45,36 +45,32 @@ class GlobalContextLayer(nn.Module):
         return x + context[batch]
 
 
-class MessageLayer(MessagePassing):
-    """Couche de propagation locale utilisant l'API MessagePassing de PyG."""
+class MessageLayer(torch.nn.Module):
+    """
+    Remplacement de la couche simple par une couche d'Attention (GATv2).
+    Plus puissant pour capturer les anisotropies (différences X vs Y).
+    """
 
     def __init__(self, dim):
-        # On agrège par somme pour respecter la nature additive des forces
-        super().__init__(aggr="add")
+        super().__init__()
+        # GATv2Conv gère le message passing avec attention
+        self.gat = GATv2Conv(dim, dim, heads=4, concat=False, dropout=0.1)
+        self.norm = nn.LayerNorm(dim)
+        self.act = nn.LeakyReLU(0.2)
 
-        # Remplacement de LeakyReLU par GELU pour plus de fluidité
-        self.msg_mlp = nn.Sequential(
-            nn.Linear(dim * 2, dim),
-            nn.GELU(),
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim),
-        )
-
-        self.up_mlp = nn.Sequential(
-            nn.Linear(dim * 2, dim), nn.GELU(), nn.LayerNorm(dim)
+        # Petit réseau pour traiter le résultat après l'attention
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim * 2), nn.LeakyReLU(0.2), nn.Linear(dim * 2, dim)
         )
 
     def forward(self, x, edge_index):
-        # x: [N, dim], edge_index: [2, E]
-        return self.propagate(edge_index, x=x)
+        # Connexion résiduelle 1 (GAT)
+        h = x + self.gat(x, edge_index)
+        h = self.norm(h)
 
-    def message(self, x_i, x_j):
-        # x_i sont les nœuds cibles, x_j les nœuds sources
-        return self.msg_mlp(torch.cat([x_i, x_j], dim=-1))
-
-    def update(self, aggr_out, x):
-        # aggr_out: [N, dim], x: [N, dim]
-        return x + self.up_mlp(torch.cat([x, aggr_out], dim=-1))
+        # Connexion résiduelle 2 (Feed Forward)
+        h = h + self.ffn(h)
+        return h
 
 
 class HybridPhysicsGNN(nn.Module):

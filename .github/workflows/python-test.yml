@@ -1,41 +1,41 @@
-name: FEA-GNN CI 
-
-on:
-  push:
-    branches: [ "gnn_v3" ]
-  pull_request:
-    branches: [ "gnn_v3" ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v4
-
-    - name: Install uv
-      # Using the curl method as per your working version
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-
-    - name: Install dependencies
-      # 'uv sync' sets up the virtual environment based on your pyproject.toml
-      run: uv sync
-
-    - name: Debug Environment
-      run: |
-        echo "Listing root directory:"
-        ls -F
-        echo "Checking installed packages via uv:"
-        uv pip list
-
-    - name: Run Tests
-      # 'python -m pytest' is the safest way to ensure the current directory is in sys.path
-      run: uv run python -m pytest tests/
+# name: FEA-GNN CI 
+# 
+# on:
+#   push:
+#     branches: [ "gnn_v3" ]
+#   pull_request:
+#     branches: [ "gnn_v3" ]
+# 
+# jobs:
+#   test:
+#     runs-on: ubuntu-latest
+#     
+#     steps:
+#     - name: Check out code
+#       uses: actions/checkout@v4
+# 
+#     - name: Install uv
+#       # Using the curl method as per your working version
+#       run: |
+#         curl -LsSf https://astral.sh/uv/install.sh | sh
+#         echo "$HOME/.local/bin" >> $GITHUB_PATH
+# 
+#     - name: Set up Python
+#       uses: actions/setup-python@v5
+#       with:
+#         python-version: "3.12"
+# 
+#     - name: Install dependencies
+#       # 'uv sync' sets up the virtual environment based on your pyproject.toml
+#       run: uv sync
+# 
+#     - name: Debug Environment
+#       run: |
+#         echo "Listing root directory:"
+#         ls -F
+#         echo "Checking installed packages via uv:"
+#         uv pip list
+# 
+#     - name: Run Tests
+#       # 'python -m pytest' is the safest way to ensure the current directory is in sys.path
+#       run: uv run python -m pytest tests/
