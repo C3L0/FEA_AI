@@ -4,7 +4,7 @@ from torch_geometric.nn import GATv2Conv, global_max_pool, global_mean_pool
 
 
 class GlobalContextLayer(nn.Module):
-    """Permet une communication instantanée entre tous les nœuds (Inchangé)."""
+    """Allows an instant communication between each nodes"""
 
     def __init__(self, dim):
         super().__init__()
@@ -24,40 +24,35 @@ class GlobalContextLayer(nn.Module):
 
 class MessageLayer(nn.Module):
     """
-    Remplacement GATv2 pour la physique.
-    Gère explicitement les attributs d'arêtes (distances).
+    Explicitly manage edges attributs
     """
 
     def __init__(self, dim, heads=4):
         super().__init__()
 
-        # GATv2Conv est plus puissant que GATConv standard (attention dynamique)
-        # edge_dim=3 est CRUCIAL : [dx, dy, length]
-        # concat=False : On moyenne les têtes pour garder la dimension stable (stabilité physique)
+        # edge_dim=3 [dx, dy, length] concat=False we average the heads to keep the stable dimension
         self.gat = GATv2Conv(
             in_channels=dim,
             out_channels=dim,
             heads=heads,
             concat=False,
             edge_dim=3,
-            dropout=0.0,  # Pas de dropout en régression physique pure
+            dropout=0.0,  # no dropout in pure physic regression
         )
 
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
 
-        # Feed Forward Network (comme dans les Transformers)
         self.ffn = nn.Sequential(
             nn.Linear(dim, dim * 2), nn.LeakyReLU(0.2), nn.Linear(dim * 2, dim)
         )
 
     def forward(self, x, edge_index, edge_attr):
-        # 1. Attention avec Résidu
-        # Important : on doit passer edge_attr pour que l'attention sache "qui est loin"
+        # attention
         h = x + self.gat(x, edge_index, edge_attr=edge_attr)
         h = self.norm1(h)
 
-        # 2. Feed Forward avec Résidu
+        # feedforward
         h = h + self.ffn(h)
         h = self.norm2(h)
 
@@ -93,7 +88,6 @@ class HybridPhysicsGNN(nn.Module):
         h = self.encoder(x)
 
         for gnn, glob in zip(self.gnn_layers, self.global_layers):
-            # On passe edge_attr au GNN !
             h = gnn(h, edge_index, edge_attr)
             h = glob(h, batch)
 

@@ -47,10 +47,7 @@ def load_model():
         input_dim=cfg["model"]["input_dim"],
     ).to(device)
 
-    # Try loading Scaled or Standard model weights
     path = os.path.join(cfg["env"]["save_path"], "gnn_hybrid_scaled.pth")
-    if not os.path.exists(path):
-        path = os.path.join(cfg["env"]["save_path"], "gnn_hybrid.pth")
 
     if not os.path.exists(path):
         return None, cfg, device, "Model not found"

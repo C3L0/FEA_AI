@@ -1,6 +1,7 @@
 from data.data_pipeline import PlateHoleDataset
 
 
+# Maybe move that to utils
 def get_dataset(root="data/"):
-    """Charge le dataset de plaques trouées généré précédemment."""
+    """Load the dataset"""
     return PlateHoleDataset(root=root)

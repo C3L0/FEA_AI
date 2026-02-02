@@ -8,16 +8,13 @@ import numpy as np
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-# --- IMPORTS SÉCURISÉS ---
-# On ne met QUE les imports standards ici.
-# Les imports lourds (torch, dolfinx) sont déplacés dans les fonctions.
 
 
 def benchmark_gnn(device_name="cuda"):
     """Mesure le temps d'inférence moyen du modèle GNN."""
-    print(f"\n--- 1. Benchmark GNN ({device_name}) ---")
+    print(f"\n--- Benchmark GNN ({device_name}) ---")
 
-    # Imports locaux pour éviter de bloquer le mode FEniCS
+    # local import (prevent from blocking the FEnics mode)
     try:
         import torch
 
@@ -25,8 +22,7 @@ def benchmark_gnn(device_name="cuda"):
         from src.fea_gnn.model import HybridPhysicsGNN
         from src.fea_gnn.utils import load_config
     except ImportError:
-        print("Erreur : PyTorch ou les modules locaux sont introuvables.")
-        print("Lancez ce mode avec 'uv run python -m ...'")
+        print("Error : local import are missing")
         return None
 
     cfg = load_config()
@@ -34,7 +30,7 @@ def benchmark_gnn(device_name="cuda"):
 
     dataset = get_dataset(root="data/")
     if len(dataset) == 0:
-        print("Erreur: Dataset vide.")
+        print("Error : empty dataset")
         return 0.0
 
     data = dataset[0].to(device)
@@ -47,12 +43,12 @@ def benchmark_gnn(device_name="cuda"):
         input_dim=cfg["model"]["input_dim"],
     ).to(device)
 
-    print("Chauffe du GPU...")
+    print("GPU heating vroum vroum")
     for _ in range(10):
         _ = model(data)
 
     n_loops = 1000
-    print(f"Lancement de {n_loops} inférences...")
+    print(f"Starting of {n_loops} inferences")
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -67,23 +63,22 @@ def benchmark_gnn(device_name="cuda"):
     end_time = time.time()
 
     avg_time = (end_time - start_time) / n_loops
-    print(f"Temps moyen GNN : {avg_time * 1000:.4f} ms")
+    print(f"Average GNN time: {avg_time * 1000:.4f} ms")
     return avg_time
 
 
 def benchmark_fenics():
-    """Mesure le temps de résolution par Éléments Finis."""
-    print("\n--- 2. Benchmark FEniCS (CPU) ---")
+    """Mesure the solving time for FEniCS framework"""
+    print("\n--- Benchmark FEniCS (CPU) ---")
 
     try:
         import dolfinx
         from mpi4py import MPI
 
-        # Import dynamique des fonctions de ton générateur de données
         from data.data_generator_2d import (create_plate_with_hole_mesh,
                                             solve_elasticity)
     except ImportError as e:
-        print(f"FEniCS non disponible : {e}")
+        print(f"FEniCS not disponible : {e}")
         return None
 
     comm = MPI.COMM_WORLD
@@ -92,7 +87,7 @@ def benchmark_fenics():
 
     times = []
     n_loops = 5
-    print(f"Lancement de {n_loops} simulations FEA complètes...")
+    print(f"Starting of {n_loops} simulations FEA completed")
 
     for i in range(n_loops):
         t0 = time.time()
@@ -103,7 +98,7 @@ def benchmark_fenics():
         print(f"  Simulation {i + 1}: {t1 - t0:.4f} s")
 
     avg_time = sum(times) / len(times)
-    print(f"Temps moyen FEniCS : {avg_time:.4f} s")
+    print(f"Average time FEniCS : {avg_time:.4f} s")
     return avg_time
 
 
