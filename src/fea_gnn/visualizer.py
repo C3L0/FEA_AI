@@ -10,7 +10,7 @@ from src.fea_gnn.utils import load_config
 
 def plot_fea_comparison(model, dataset, device, sample_idx=0, amp_factor=None):
     """
-    Visualisation corrigée avec conversion d'unités propre.
+    Visualization
     """
     cfg = load_config()
     norm = cfg["normalization"]
@@ -24,24 +24,23 @@ def plot_fea_comparison(model, dataset, device, sample_idx=0, amp_factor=None):
     with torch.no_grad():
         raw_pred = model(data).cpu().numpy()
 
-    # --- DÉ-NORMALISATION GÉOMÉTRIE ---
+    # un-normalization of the geometry
     coords_m = data.x[:, 0:2].cpu().numpy()
     coords_m[:, 0] *= float(norm["x"])
     coords_m[:, 1] *= float(norm["y"])
 
-    # Sorties u, v (déjà en mm via target_scale=1000 dans le pipeline)
+    # output u, v
     gt_disp_mm = data.y.cpu().numpy()
     pred_disp_mm = raw_pred
 
-    # --- CORRECTION GPa ---
+    # GPa Correction
     # data.x[:, 2] est ~1.0. norm['E'] est 210e9.
     # (1.0 * 210e9) / 1e9 = 210 GPa.
     E_val_gpa = (data.x[:, 2].mean().item() * float(norm["E"])) / 1e9
 
-    # --- AMPLIFICATION ---
+    # Amplification
     x_coords, y_coords = coords_m[:, 0], coords_m[:, 1]
     if amp_factor is None:
-        # On se base sur FEniCS pour l'amplification stable
         max_gt_m = np.max(np.linalg.norm(gt_disp_mm, axis=1)) / 1000.0
         H = np.max(y_coords) - np.min(y_coords)
         amp_factor = (H * 0.15) / max_gt_m if max_gt_m > 1e-9 else 1.0
@@ -71,28 +70,26 @@ def plot_fea_comparison(model, dataset, device, sample_idx=0, amp_factor=None):
         ax.axis("off")
         return tpc
 
-    # On utilise la même échelle de couleur pour comparer honnêtement
+    # We use the same scale of color
     vmax = np.max(gt_disp_mm)
     vmin = 0
 
-    im1 = draw_structure(
-        ax1, gt_disp_mm, "VÉRITÉ TERRAIN (FEniCS)", "Blues", vmin, vmax
-    )
-    plt.colorbar(im1, ax=ax1, label="Déplacement (mm)", fraction=0.02)
+    im1 = draw_structure(ax1, gt_disp_mm, "Ground Truth (FEniCS)", "Blues", vmin, vmax)
+    plt.colorbar(im1, ax=ax1, label="Displacement (mm)", fraction=0.02)
 
     error_mm = np.mean(np.linalg.norm(gt_disp_mm - pred_disp_mm, axis=1))
     im2 = draw_structure(
         ax2,
         pred_disp_mm,
-        f"PRÉDICTION GNN (Erreur moy: {error_mm:.4f} mm)",
+        f"GNN Prediction(Average Error: {error_mm:.4f} mm)",
         "Reds",
         vmin,
         vmax,
     )
-    plt.colorbar(im2, ax=ax2, label="Déplacement (mm)", fraction=0.02)
+    plt.colorbar(im2, ax=ax2, label="Displacement (mm)", fraction=0.02)
 
     plt.suptitle(
-        f"Analyse Finale | Matériau: {E_val_gpa:.1f} GPa\n(Déformations amplifiées x{amp_factor:.1f})",
+        f"Final Analysis | Material: {E_val_gpa:.1f} GPa\n(Deformations amplified x{amp_factor:.1f})",
         fontsize=15,
     )
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])

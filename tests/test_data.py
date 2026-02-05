@@ -7,9 +7,11 @@ import torch
 from data.data_pipeline import PlateHoleDataset
 from fea_gnn.data_loader import CantileverMeshDataset
 
+### Sadly those test didn't have been updated and the end of the project....
+
 
 def test_dataset_structure():
-    """Checks if the dataset returns the correct data types and shapes."""
+    """Checks if the dataset returns the correct data types and shapes"""
     # Initialize small dataset
     ds = CantileverMeshDataset(
         num_samples=5,
@@ -38,7 +40,7 @@ def test_dataset_structure():
 def test_material_normalization():
     """
     CRITICAL: Tests if Young's Modulus is normalized to approx 1.0
-    If we feed E=210 GPa, the model should receive ~1.0, not 210e9.
+    If we feed E=210 GPa, the model should receive ~1.0, not 210e9
     """
     ds = CantileverMeshDataset(
         num_samples=1,
@@ -62,16 +64,16 @@ def test_material_normalization():
 
 
 def test_dataset_loading():
-    # Vérifie que le dataset se charge
+    # Check loading dataset
     if os.path.exists("processed/dataset.pt"):
         dataset = PlateHoleDataset(root="data/")
         assert len(dataset) > 0
 
-        # Vérifie la structure du premier graphe
+        # Check the structure of first graph
         data = dataset[0]
         assert hasattr(data, "x")  # Features
         assert hasattr(data, "edge_index")  # Connectivité
         assert hasattr(data, "y")  # Labels (ux, uy)
 
-        # Vérifie que les coordonnées x, y sont dans les features (colonnes 0 et 1)
+        # Check coordonates x, y are in features - columns 0 and 1
         assert data.x.shape[1] == 7  # x, y, E, nu, Fx, Fy, isFixed

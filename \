@@ -165,7 +165,7 @@ def run_batch_analysis_v3(_model, _dataset, _cfg, _device, num_samples=50):
 
 def plot_spatial_heatmap(spatial_data, metric="err_abs", bins=(100, 45)):
     """
-    Generate a heatmap
+    Generate a heatmap 
     """
     x, y, z = spatial_data["x"], spatial_data["y"], spatial_data[metric]
 
@@ -201,7 +201,7 @@ def plot_spatial_heatmap(spatial_data, metric="err_abs", bins=(100, 45)):
     label = "Absolute Error (mm)" if metric == "err_abs" else "Relative Error (%)"
     cbar.set_label(label)
 
-    ax.set_title(f"Spatial Distribution of the Error")
+    ax.set_title(f"Distribution Spatiale de l'Erreur")
     ax.set_xlabel("Position X (m)")
     ax.set_ylabel("Position Y (m)")
 
@@ -236,7 +236,7 @@ def plot_individual_sample(model, dataset, device, sample_idx, scale_factor, nor
 
 # --- APP ---
 def main():
-    st.title("Dashboard - GNN Analysis")
+    st.title("Tableau de Bord - Analyse GNN Mécanique")
     dataset, model, cfg, device, status_msg, status_type = load_resources()
 
     if model is None:
@@ -248,17 +248,17 @@ def main():
     else:
         st.sidebar.success(status_msg)
 
-    n_anal = st.sidebar.slider("Simulations to analyze", 10, 500, 50)
+    n_anal = st.sidebar.slider("Simulations à analyser", 10, 500, 50)
 
     # Appel de la fonction v3 pour forcer la mise à jour
     df_raw, spatial_data = run_batch_analysis_v3(model, dataset, cfg, device, n_anal)
 
     # --- FILTRAGE DES ABERRATIONS ---
-    st.sidebar.markdown("### Filters")
-    use_filter = st.sidebar.checkbox("Exclude Divergences", value=True)
+    st.sidebar.markdown("### 🧹 Filtres")
+    use_filter = st.sidebar.checkbox("Exclure les divergences", value=True)
     if use_filter:
         threshold = st.sidebar.number_input(
-            "Threshold of Max Relative Error (%)", value=100.0
+            "Seuil Erreur Relative Max (%)", value=100.0
         )
         df_stats = df_raw[df_raw["Rel Error (%)"] < threshold]
         n_excluded = len(df_raw) - len(df_stats)
@@ -267,23 +267,26 @@ def main():
     else:
         df_stats = df_raw
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Metrics", "Space", "Training", "Detail"])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["📊 Métriques", "🗺️ Espace", "📉 Training", "🔎 Détail"]
+    )
 
     with tab1:
-        st.header("Global Preformance on filtered data")
+        st.header("Performance Globale (Sur données filtrées)")
         cols = st.columns(4)
-        cols[0].metric("MAE Median", f"{df_stats['MAE (mm)'].median():.4f} mm")
-        cols[1].metric("MSE Median", f"{df_stats['MSE'].median():.2e}")
+        # Utilisation de la médiane pour être robuste aux outliers restants
+        cols[0].metric("MAE Médiane", f"{df_stats['MAE (mm)'].median():.4f} mm")
+        cols[1].metric("MSE Médiane", f"{df_stats['MSE'].median():.2e}")
         cols[2].metric(
-            "Err Max (Worst Case)", f"{df_stats['Max Error (mm)'].max():.4f} mm"
+            "Err Max (Pire cas)", f"{df_stats['Max Error (mm)'].max():.4f} mm"
         )
-        cols[3].metric("Err Rel Median", f"{df_stats['Rel Error (%)'].median():.2f} %")
+        cols[3].metric("Err Rel Médiane", f"{df_stats['Rel Error (%)'].median():.2f} %")
 
         st.divider()
         cx = st.selectbox(
-            "Parameter X", ["Force (N)", "Young (GPa)", "Poisson", "Nodes"]
+            "Paramètre X", ["Force (N)", "Young (GPa)", "Poisson", "Noeuds"]
         )
-        cy = st.selectbox("Metric Y", ["MAE (mm)", "Rel Error (%)", "Max Error (mm)"])
+        cy = st.selectbox("Métrique Y", ["MAE (mm)", "Rel Error (%)", "Max Error (mm)"])
 
         # Sécurité pour Plotly : vérifier que ID est bien là
         h_data = ["ID"] if "ID" in df_stats.columns else None
@@ -293,15 +296,15 @@ def main():
             x=cx,
             y=cy,
             color="Young (GPa)",
-            size="Nodes",
+            size="Noeuds",
             hover_data=h_data,
-            title=f"Correlation : {cy} vs {cx}",
+            title=f"Corrélation : {cy} vs {cx}",
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        type_err = st.radio("Type", ["Absolute (mm)", "Relative (%)"], horizontal=True)
-        metric_key = "err_abs" if "Absolute" in type_err else "err_rel"
+        type_err = st.radio("Type", ["Absolue (mm)", "Relative (%)"], horizontal=True)
+        metric_key = "err_abs" if "Absolue" in type_err else "err_rel"
         st.pyplot(plot_spatial_heatmap(spatial_data, metric=metric_key))
 
     with tab3:
@@ -312,15 +315,16 @@ def main():
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("No History")
+            st.warning("Pas d'historique.")
 
     with tab4:
         col_sel, col_view = st.columns([1, 3])
         with col_sel:
-            # Allows to chose among disponible IDs
+            # On permet de choisir parmi les IDs disponibles dans le dataset global
             sid = st.number_input("Index Simulation", 0, len(dataset) - 1, 0)
             amp = st.slider("Amplification", 1.0, 2000.0, 500.0)
 
+            # Affichage rapide des propriétés
             data_s = dataset[sid]
             E_disp = data_s.x[0, 2] * float(cfg["normalization"]["E"]) / 1e9
             st.info(f"Young: {E_disp:.1f} GPa")

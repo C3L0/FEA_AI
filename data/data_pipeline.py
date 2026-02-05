@@ -33,14 +33,13 @@ class PlateHoleDataset(InMemoryDataset):
         return ["dataset.pt"]
 
     def process(self):
-        print(f"Chargement depuis {self.root}...")
+        print(f"Loading from {self.root}...")
         df_nodes = pd.read_csv(os.path.join(self.root, self.nodes_csv))
         df_topo = pd.read_csv(os.path.join(self.root, self.topo_csv))
 
-        # --- CONFIGURATION DU SCALING ---
-        # 1.000.000 par défaut (micromètres) pour aider l'IA
+        # Scaling configuration - which I would like to like to config.yaml
         TARGET_SCALE = 1_000_000.0
-        print(f"!!! SCALING ACTIF : x{TARGET_SCALE} !!!")
+        print(f"!!! SCALING ACTIVE : x{TARGET_SCALE} !!!")
 
         cfg = load_config()
         norm_cfg = cfg.get("normalization", {})
@@ -60,7 +59,7 @@ class PlateHoleDataset(InMemoryDataset):
             )
             pos_physical = torch.tensor(feat[:, 0:2], dtype=torch.float)
 
-            # Normalisation Inputs (Standard)
+            # Normalisation Inputs
             feat[:, 0] /= float(norm_cfg.get("x", 1.0))
             feat[:, 1] /= float(norm_cfg.get("y", 1.0))
             feat[:, 2] /= float(norm_cfg.get("E", 1.0))
@@ -69,14 +68,14 @@ class PlateHoleDataset(InMemoryDataset):
 
             x = torch.tensor(feat, dtype=torch.float)
 
-            # Cibles avec SCALING FORCE
+            # Targer with SCALING FORCED
             y_values = nodes_sim[["ux", "uy"]].to_numpy(dtype=float) * TARGET_SCALE
             y = torch.tensor(y_values, dtype=torch.float)
 
             if y.shape[1] != 2:
                 continue
 
-            # Topology (Vectorisée)
+            # Topology
             cells = topo_sim[["n1", "n2", "n3"]].to_numpy(dtype=int)
             face = torch.tensor(cells, dtype=torch.long).t().contiguous()
             idx_pairs = [[0, 1], [1, 0], [1, 2], [2, 1], [2, 0], [0, 2]]
@@ -98,7 +97,7 @@ class PlateHoleDataset(InMemoryDataset):
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
-        print("Dataset généré avec succès.")
+        print("Dataset generated sucessfully")
 
 
 if __name__ == "__main__":

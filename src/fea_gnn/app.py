@@ -10,7 +10,6 @@ import pandas as pd
 import streamlit as st
 import torch
 
-# --- FIX IMPORTS ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from torch_geometric.data import Batch, Data
@@ -18,10 +17,8 @@ from torch_geometric.data import Batch, Data
 from src.fea_gnn.model import HybridPhysicsGNN
 from src.fea_gnn.utils import load_config
 
-# --- PAGE CONFIG ---
 st.set_page_config(page_title="FEA-GNN: Instant Simulator", layout="wide")
 
-# --- MATERIALS DICTIONARY ---
 MATERIALS = {
     "Custom": {"E": 210.0, "nu": 0.3},
     "Steel": {"E": 210.0, "nu": 0.30},
@@ -29,10 +26,8 @@ MATERIALS = {
     "Titanium": {"E": 110.0, "nu": 0.34},
     "Concrete": {"E": 30.0, "nu": 0.20},
     "Wood (Oak)": {"E": 12.0, "nu": 0.30},
-    "Rubber": {"E": 0.1, "nu": 0.49},  # Warning: Out of training distribution
+    "Rubber": {"E": 0.1, "nu": 0.49},
 }
-
-# --- UTILITY FUNCTIONS ---
 
 
 @st.cache_resource
@@ -69,7 +64,7 @@ def generate_mesh_live(L, H, R, res_factor=10):
     Includes a workaround for the 'signal only works in main thread' error.
     Returns: coords (N,2), cells (M,3)
     """
-    # WORKAROUND: Streamlit runs in a thread, so we bypass GMSH's signal handler registration
+    # Streamlit runs in a thread, so we bypass GMSH's signal handler registration
     original_handler = signal.signal
     signal.signal = lambda *args, **kwargs: None
 
@@ -131,7 +126,7 @@ def prepare_graph(nodes, cells, E, nu, Fx, Fy, cfg):
     norm = cfg["normalization"]
     num_nodes = len(nodes)
 
-    # 1. Features: [x, y, E, nu, Fx, Fy, isFixed]
+    # Features: [x, y, E, nu, Fx, Fy, isFixed]
     features = np.zeros((num_nodes, 7))
     features[:, 0] = nodes[:, 0]
     features[:, 1] = nodes[:, 1]
@@ -160,7 +155,7 @@ def prepare_graph(nodes, cells, E, nu, Fx, Fy, cfg):
 
     x = torch.tensor(feat_norm, dtype=torch.float)
 
-    # 2. Edges
+    # Edges
     edges = []
     for tri_cell in cells:
         n1, n2, n3 = tri_cell
@@ -178,9 +173,6 @@ def prepare_graph(nodes, cells, E, nu, Fx, Fy, cfg):
     return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, batch=batch)
 
 
-# --- INTERFACE ---
-
-
 def main():
     st.sidebar.title("Parameters")
 
@@ -189,7 +181,7 @@ def main():
         st.error(f"Initialization Error: {status}")
         return
 
-    # 1. User Inputs
+    # User Inputs
     st.sidebar.subheader("1. Geometry")
     L = st.sidebar.slider("Length L (m)", 1.0, 3.0, 2.0, 0.1)
     H = st.sidebar.slider("Height H (m)", 0.3, 1.0, 0.5, 0.05)
@@ -231,7 +223,7 @@ def main():
         help="Magnifies the displacement for easier viewing.",
     )
 
-    # 6. Action Button
+    # Action Button
     if st.sidebar.button("Run Simulation", type="primary"):
         with st.spinner("Meshing & AI Prediction..."):
             # Generate mesh using user-selected resolution
@@ -262,7 +254,7 @@ def main():
                 # Create figure with two subplots: Initial and Deformed
                 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
 
-                # Plot 1: Initial Structure (Undeformed)
+                # Plot 1: Initial Structure
                 triang_init = tri.Triangulation(
                     nodes[:, 0], nodes[:, 1], triangles=cells
                 )
@@ -271,7 +263,7 @@ def main():
                 ax1.set_title("Initial Undeformed Mesh", fontsize=12, fontweight="bold")
                 ax1.axis("off")
 
-                # Plot 2: Predicted Structure (Deformed)
+                # Plot 2: Predicted Structure
                 # Deformed coordinates
                 pos_def = nodes + (u_mm / 1000.0) * scale_factor
                 triang_def = tri.Triangulation(

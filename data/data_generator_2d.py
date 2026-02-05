@@ -13,20 +13,18 @@ from dolfinx.fem.petsc import LinearProblem
 from mpi4py import MPI
 from petsc4py.PETSc import ScalarType
 
-# --- 1. FONCTIONS DE MAILLAGE ET SOLVEUR ---
-
 
 def create_plate_with_hole_mesh(comm, L, H, R, res_factor):
     """
-    Crée le maillage avec une densité variable contrôlée par res_factor.
-    res_factor élevé = maillage fin.
+    Create the meshing with variable density
+    High res_factor élevé = fine meshing
     """
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 0)
     model = gmsh.model
     model.add("Plate_with_Hole")
 
-    # MODIFICATION ICI : La taille caractéristique lc dépend du facteur aléatoire
+    # Caracteristic size depends of an random factor
     lc = H / res_factor
 
     rect = model.occ.addRectangle(0, 0, 0, L, H)
@@ -36,7 +34,7 @@ def create_plate_with_hole_mesh(comm, L, H, R, res_factor):
     surface_tag = out[0][1]
     model.addPhysicalGroup(2, [surface_tag], tag=1)
 
-    # Raffinement
+    # Refinement
     model.mesh.field.add("Distance", 1)
     entities = model.getEntities(1)
     model.mesh.field.setNumbers(1, "CurvesList", [e[1] for e in entities])
@@ -88,13 +86,10 @@ def solve_elasticity(msh, E, nu, F):
     a = ufl.inner(sigma(u), epsilon(v)) * ufl.dx
     L_form = ufl.dot(ufl.as_vector([F, 0.0]), v) * ds(1)
 
-    # Options pour stabilité
+    # Stability options
     problem = LinearProblem(a, L_form, bcs=[bc_left], petsc_options_prefix="elasticity")
     uh = problem.solve()
     return uh, V
-
-
-# --- 2. EXTRACTION DES DONNÉES ---
 
 
 def extract_simulation_data(sim_id, msh, V, uh, E, nu, F):
@@ -142,9 +137,6 @@ def extract_simulation_data(sim_id, msh, V, uh, E, nu, F):
     return node_rows, connectivity_rows
 
 
-# --- 3. MAIN ---
-
-
 def main():
     comm = MPI.COMM_WORLD
     rank = comm.rank
@@ -159,25 +151,23 @@ def main():
     local_connectivity = []
 
     if rank == 0:
-        print(f"Génération de {n_samples_total} simulations sur {size} cœurs...")
+        print(f"Generation of {n_samples_total} simulations on {size} cores")
 
     for i in range(n_samples_local):
         sim_id = rank * n_samples_local + i
 
-        # Géométrie variable
+        # Variable geometry
         L, H = rng.uniform(1.5, 2.5), rng.uniform(0.8, 1.2)
         R = rng.uniform(0.1, 0.3) * H
 
-        # Matériaux variables
+        # Variable materials
         E, nu = rng.uniform(10e9, 210e9), rng.uniform(0.2, 0.4)
         F = rng.uniform(1e5, 1e7)
 
-        # MODIFICATION ICI : Densité de maillage variable
-        # De grossier (8.0) à fin (25.0)
+        # Variable meshing density
         res_factor = rng.uniform(8.0, 25.0)
 
         try:
-            # On passe le res_factor à la fonction de maillage
             msh = create_plate_with_hole_mesh(MPI.COMM_SELF, L, H, R, res_factor)
             uh, V = solve_elasticity(msh, E, nu, F)
 
@@ -186,11 +176,10 @@ def main():
             local_connectivity.extend(topo)
 
             if rank == 0:
-                # On affiche aussi le nombre de nœuds pour vérifier la variété
-                print(f"Sim {sim_id} OK ({len(nodes)} nœuds)")
+                print(f"Sim {sim_id} OK ({len(nodes)} nodes)")
 
         except Exception as e:
-            print(f"Erreur Sim {sim_id}: {e}")
+            print(f"Error Sim {sim_id}: {e}")
 
     all_nodes = comm.gather(local_nodes, root=0)
     all_topo = comm.gather(local_connectivity, root=0)
@@ -199,8 +188,6 @@ def main():
         flat_nodes = [item for sublist in all_nodes for item in sublist]
         flat_topo = [item for sublist in all_topo for item in sublist]
 
-        # Sauvegarde dans le dossier 'raw' (Structure propre)
-        # Assurez-vous que le dossier raw existe, sinon changez pour 'data/'
         output_dir = "raw"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -209,8 +196,8 @@ def main():
         pd.DataFrame(flat_topo).to_csv(f"{output_dir}/connectivity.csv", index=False)
 
         print(
-            f"\nSuccès ! Fichiers générés dans '{output_dir}/' :"
-            f"\n -> db.csv ({len(flat_nodes)} lignes)"
+            f"\nSuccess ! Fiels generated in '{output_dir}/' :"
+            f"\n -> db.csv ({len(flat_nodes)} lines)"
             f"\n -> connectivity.csv ({len(flat_topo)} triangles)"
         )
 

@@ -11,8 +11,8 @@ with warnings.catch_warnings():
 
 
 def benchmark_gnn(device_name="cuda"):
-    """Mesure le temps d'inférence moyen du modèle GNN."""
-    print(f"\n--- Benchmark GNN ({device_name}) ---")
+    """Mesures the average inference time of the GNN model"""
+    print(f"\nBenchmark GNN ({device_name})")
 
     # local import (prevent from blocking the FEnics mode)
     try:
@@ -43,7 +43,7 @@ def benchmark_gnn(device_name="cuda"):
         input_dim=cfg["model"]["input_dim"],
     ).to(device)
 
-    print("GPU heating vroum vroum")
+    print("GPU heating")
     for _ in range(10):
         _ = model(data)
 
@@ -68,7 +68,7 @@ def benchmark_gnn(device_name="cuda"):
 
 
 def benchmark_fenics():
-    """Mesure the solving time for FEniCS framework"""
+    """Mesures the solving time for FEniCS framework"""
     print("\n--- Benchmark FEniCS (CPU) ---")
 
     try:

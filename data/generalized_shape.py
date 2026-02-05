@@ -1,22 +1,21 @@
 import os
+
+import dolfinx.io.gmsh as gmshio
 import gmsh
 import numpy as np
 import pandas as pd
 import ufl
-from mpi4py import MPI
-from dolfinx import fem, mesh, io
+from dolfinx import fem, io, mesh
 from dolfinx.fem.petsc import LinearProblem
+from mpi4py import MPI
 from petsc4py.PETSc import ScalarType
-import dolfinx.io.gmsh as gmshio
 
 # Ensure mixed imports work
 os.environ["DOLFINX_ALLOW_USER_SITE_IMPORTS"] = "1"
 
-# --- MESH GENERATION FUNCTIONS ---
-
 
 def create_full_plate(comm, L, H, res_factor=15):
-    """Generates a simple rectangular plate without holes."""
+    """Generates a simple rectangular plate without holes"""
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 0)
     model = gmsh.model
@@ -40,7 +39,7 @@ def create_full_plate(comm, L, H, res_factor=15):
 
 
 def create_double_hole_plate(comm, L, H, R, res_factor=15):
-    """Generates a plate with TWO holes."""
+    """Generates a plate with TWO holes"""
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 0)
     model = gmsh.model
@@ -50,9 +49,9 @@ def create_double_hole_plate(comm, L, H, R, res_factor=15):
 
     rect = model.occ.addRectangle(0, 0, 0, L, H)
 
-    # Hole 1 (Left-ish)
+    # Hole 1
     c1 = model.occ.addDisk(L / 3, H / 2, 0, R, R)
-    # Hole 2 (Right-ish)
+    # Hole 2
     c2 = model.occ.addDisk(2 * L / 3, H / 2, 0, R, R)
 
     # Cut both
@@ -62,16 +61,13 @@ def create_double_hole_plate(comm, L, H, R, res_factor=15):
     surface_tag = out[0][1]
     model.addPhysicalGroup(2, [surface_tag], tag=1)
 
-    # Refinement around holes (Points based)
+    # Refinement around holes
     model.mesh.setSize(model.getEntities(0), lc)
     model.mesh.generate(2)
 
     mesh_data = gmshio.model_to_mesh(model, comm, 0, gdim=2)
     gmsh.finalize()
     return mesh_data.mesh
-
-
-# --- SOLVER & EXTRACTION (Reused from your previous code) ---
 
 
 def solve_elasticity(msh, E, nu, F):
@@ -154,9 +150,6 @@ def extract_data(sim_id, msh, V, uh, E, nu, F):
     return nodes, topo
 
 
-# --- MAIN EXECUTION ---
-
-
 def main():
     # Setup folders
     base_dir = "data/generalization"
@@ -170,7 +163,7 @@ def main():
     E, nu = 210e9, 0.3
     F = 1e6
 
-    print(">>> Generating Case 1: Full Plate (No Hole)")
+    print("Generating Case 1: Full Plate (No Hole)")
     msh_full = create_full_plate(comm, L, H)
     uh_full, V_full = solve_elasticity(msh_full, E, nu, F)
     nodes_full, topo_full = extract_data(101, msh_full, V_full, uh_full, E, nu, F)
@@ -180,7 +173,7 @@ def main():
         f"{base_dir}/full_plate/connectivity.csv", index=False
     )
 
-    print(">>> Generating Case 2: Double Hole")
+    print("Generating Case 2: Double Hole")
     msh_double = create_double_hole_plate(comm, L, H, R=0.08)
     uh_double, V_double = solve_elasticity(msh_double, E, nu, F)
     nodes_double, topo_double = extract_data(
