@@ -29,7 +29,7 @@ uv (Fast Python package manager)
 The project uses uv to manage Deep Learning dependencies while relying on system-level libraries for FEniCSx data generation.
 ```
 # Clone the repository
-git clone [https://github.com/your-username/FEA_AI.git](https://github.com/your-username/FEA_AI.git)
+git clone https://github.com/C3L0/FEA_AI.git
 cd FEA_AI
 
 # Install dependencies
@@ -55,14 +55,20 @@ Follow these steps in order to replicate the full project pipeline.
 #### Step 1: Data Generation (FEniCS)
 
 This step uses the FEM solver to create the ground-truth dataset. It requires the system Python environment where dolfinx is installed.
+(The data generation following this way have only worked on linux/Macos)
 
 ```
 # Generates db.csv and connectivity.csv in the raw/ folder
 export DOLFINX_ALLOW_USER_SITE_IMPORTS=1
 mpirun -n 4 python3 -m data.data_generator_2d
-
 ```
 
+```
+# Generates db.csv and connectivity.csv in the generalization/ folder
+export DOLFINX_ALLOW_USER_SITE_IMPORTS=1
+mpirun -n 4 python3 -m data.generalized_shape
+
+```
 #### Step 2: Data Pipeline (Graph Construction)
 
 Converts raw CSV simulation results into normalized PyTorch Geometric graph objects.
@@ -83,16 +89,28 @@ Starts the training process using the GAT architecture and the hybrid loss (Data
 uv run python -m src.fea_gnn.trainer
 ```
 
-The trained weights are saved in the directory specified by the configuration file (typically saved_models/gnn_hybrid_scaled.pth).
+The trained weights are saved in the directory specified by the configuration file (typically models/gnn_hybrid_scaled.pth).
 
 #### Step 4: Metrics and Evaluation
 
 Launch the interactive dashboard to analyze model performance, view error heatmaps, and inspect individual predictions.
 
 ```
+# Observe training metrics & results on a sample of inferences
 uv run streamlit run src/fea_gnn/metric_dashboard.py
+
+# Observe evaluation on one by one sample on regular and extrem stress conditions
+uv run streamlit run src/fea_gnn/evaluation_dashboard.py
+
+# To study the benefits of the model in time consumation
+uv run python -m src.fea_gnn.benchmark --mode gnn
+uv run python -m src.fea_gnn.benchmark --mode fenics
 ```
 
+```
+# Oberve generalization shape 
+uv run streamlit run src/fea_gnn/test_generalization.py
+```
 
 #### Step 5: Live Inference (User Application)
 
@@ -106,22 +124,37 @@ uv run streamlit run src/fea_gnn/app_inference.py
 ## Project Structure
 
 FEA_AI/
-├── config.yaml              # Hyperparameters (Architecture, Physics, Normalization)
+├── config.yaml                         # Hyperparameters (Architecture, Physics, Normalization)
+├── .github/workflows/python-test.yml   # GitAction config
 ├── data/
-│   ├── data_generator_2d.py # FEniCSx script for FEM generation
-│   ├── data_pipeline.py     # CSV to PyG Graph converter
-│   └── processed/           # Processed binary dataset (.pt)
-├── saved_models/            # Trained model weights (.pth)
-├── raw/                     # Raw simulation data (CSV format)
+│   ├── connectivity.csv                # (wrongly placed)Dataset : relation between nodes
+│   ├── db.csv                          # (wrongly placed)Dataset : nodes parameters
+│   ├── data_generator_2d.py            # FEniCSx script for FEM generation
+│   ├── generalized_shape.py            # FEniCSx script for FEM generation on untrained shape
+│   ├── data_pipeline.py                # CSV to PyG Graph converter
+│   ├── raw/                            # Raw simulation data (CSV format)(not used yet due to error in path)
+│   ├── generalization/                 # Raw simulation data (CSV format) for untrained shape
+│   └── processed/                      # Processed binary dataset (.pt)
+├── models/                             # Trained model weights (.pth)
+├── raw/                                # Raw simulation data (CSV format)(don't use/ can be remove)
 ├── src/fea_gnn/
-│   ├── model.py             # GATv2 and Global Context architecture
-│   ├── trainer.py           # Training loop and PINN loss logic
-│   ├── data_loader.py       # PyTorch Dataset classes
-│   ├── eval_dashboard.py    # Metric calculation scripts
-│   ├── metric_dashboard.py  # Streamlit Analytics Dashboard
-│   └── app_inference.py     # Streamlit Live Simulation App
-├── Dockerfile               # Container configuration
-└── pyproject.toml           # Project dependencies
+│   ├── model.py                        # GATv2 and Global Context architecture
+│   ├── trainer.py                      # Training loop and PINN loss logic
+│   ├── benchmark.py                    # Script to mesure the time of a FEM simulation
+│   ├── data_loader.py                  # PyTorch Dataset classes
+│   ├── eval_dashboard.py               # Metric calculation scripts
+│   ├── metric_dashboard.py             # Streamlit Analytics Dashboard
+│   ├── evaluator.py                    # (not usefull anymore) 
+│   ├── visualizer.py                   # (not usefull anymore)
+│   ├── utils.py                        # Utils methods
+│   ├── test_generalization.py          # Streamlit Analytics Generalized Shape
+│   └── app.py                          # Streamlit Live Simulation App
+├── tests/
+│   ├── test_data.py                    # (not up-to-date) Test Data
+│   └── test_model.py                   # (not up-to-date) Test Model
+├── visualization/                      # (save img result)
+├── Dockerfile                          # Container configuration
+└── pyproject.toml                      # Project dependencies
 
 
 ## Performance Results
@@ -143,4 +176,4 @@ Marwan Bemmousat @marouz94
 Alexandra Cocuron @alexandracocuron
 Mohamed Boukaoui @mohamedboukaoui
 
-Final Year Project (PFE) development.
+Final Year Projct (PFE) development.
