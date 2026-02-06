@@ -1,30 +1,39 @@
-# Use an official PyTorch image as parent
-# 'runtime' is smaller; use 'devel' if you need to compile custom CUDA kernels
-FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+# Use an official NVIDIA CUDA image with Python support
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
-# Set working directory
-WORKDIR /app
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-# Prevent Python from writing .pyc files and enable unbuffered logging
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Install system dependencies (e.g., for OpenCV or Matplotlib if needed)
+# Install system dependencies (GMSH, OpenMPI for FEniCS, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    python3-pip \
+    python3-dev \
+    libglu1-mesa \
+    libxcursor1 \
+    libxinerama1 \
+    libxft2 \
+    libfltk1.3 \
+    libgmsh-dev \
+    gmsh \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for fast dependency management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# Install uv for dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Set work directory
+WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml .
-COPY src/ ./src/
-COPY tests/ ./tests/
+COPY . .
 
-# Install dependencies
-RUN uv pip install --system .
-RUN uv pip install --system pytest
+# Install Python dependencies using uv
+# We sync the environment based on the pyproject.toml and uv.lock
+RUN uv sync --frozen
 
-# Default command
-CMD ["pytest"]
+# Expose Streamlit port
+EXPOSE 8501
+
+# Command to launch the inference app by default
+ENTRYPOINT ["uv", "run", "streamlit", "run", "src/fea_gnn/app.py", "--server.address=0.0.0.0"]

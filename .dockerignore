@@ -12,9 +12,9 @@ __pycache__/
 raw/
 processed/
 visualization/
-models/
+# models/
 *.csv
 *.pt
-*.pth
+# *.pth
 
 .DS_Store
