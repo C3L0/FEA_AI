@@ -44,7 +44,7 @@ Docker is the preferred method for deployment to avoid manual installation of FE
 # Build the image
 docker build -t fea-gnn .
 
-# Run the inference interface (accessible on port 8501)
+# Run the inference interface (accessible on  0.0.0.0:8501)
 docker run --gpus all -p 8501:8501 fea-gnn
 ```
 
