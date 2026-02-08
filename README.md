@@ -123,38 +123,38 @@ uv run streamlit run src/fea_gnn/app_inference.py
 
 ## Project Structure
 
-FEA_AI/
-├── config.yaml                         # Hyperparameters (Architecture, Physics, Normalization)
-├── .github/workflows/python-test.yml   # GitAction config
-├── data/
-│   ├── connectivity.csv                # (wrongly placed)Dataset : relation between nodes
-│   ├── db.csv                          # (wrongly placed)Dataset : nodes parameters
-│   ├── data_generator_2d.py            # FEniCSx script for FEM generation
-│   ├── generalized_shape.py            # FEniCSx script for FEM generation on untrained shape
-│   ├── data_pipeline.py                # CSV to PyG Graph converter
-│   ├── raw/                            # Raw simulation data (CSV format)(not used yet due to error in path)
-│   ├── generalization/                 # Raw simulation data (CSV format) for untrained shape
-│   └── processed/                      # Processed binary dataset (.pt)
-├── models/                             # Trained model weights (.pth)
-├── raw/                                # Raw simulation data (CSV format)(don't use/ can be remove)
-├── src/fea_gnn/
-│   ├── model.py                        # GATv2 and Global Context architecture
-│   ├── trainer.py                      # Training loop and PINN loss logic
-│   ├── benchmark.py                    # Script to mesure the time of a FEM simulation
-│   ├── data_loader.py                  # PyTorch Dataset classes
-│   ├── eval_dashboard.py               # Metric calculation scripts
-│   ├── metric_dashboard.py             # Streamlit Analytics Dashboard
-│   ├── evaluator.py                    # (not usefull anymore) 
-│   ├── visualizer.py                   # (not usefull anymore)
-│   ├── utils.py                        # Utils methods
-│   ├── test_generalization.py          # Streamlit Analytics Generalized Shape
-│   └── app.py                          # Streamlit Live Simulation App
-├── tests/
-│   ├── test_data.py                    # (not up-to-date) Test Data
-│   └── test_model.py                   # (not up-to-date) Test Model
-├── visualization/                      # (save img result)
-├── Dockerfile                          # Container configuration
-└── pyproject.toml                      # Project dependencies
+FEA_AI/ <br>
+├── config.yaml                         # Hyperparameters (Architecture, Physics, Normalization) <br>
+├── .github/workflows/python-test.yml   # GitAction config <br>
+├── data/ <br>
+│   ├── connectivity.csv                # (wrongly placed)Dataset : relation between nodes <br>
+│   ├── db.csv                          # (wrongly placed)Dataset : nodes parameters <br>
+│   ├── data_generator_2d.py            # FEniCSx script for FEM generation <br>
+│   ├── generalized_shape.py            # FEniCSx script for FEM generation on untrained shape <br>
+│   ├── data_pipeline.py                # CSV to PyG Graph converter <br>
+│   ├── raw/                            # Raw simulation data (CSV format)(not used yet due to error in path) <br>
+│   ├── generalization/                 # Raw simulation data (CSV format) for untrained shape <br>
+│   └── processed/                      # Processed binary dataset (.pt) <br>
+├── models/                             # Trained model weights (.pth) <br>
+├── raw/                                # Raw simulation data (CSV format)(don't use/ can be remove) <br>
+├── src/fea_gnn/ <br>
+│   ├── model.py                        # GATv2 and Global Context architecture <br>
+│   ├── trainer.py                      # Training loop and PINN loss logic <br>
+│   ├── benchmark.py                    # Script to mesure the time of a FEM simulation <br>
+│   ├── data_loader.py                  # PyTorch Dataset classes <br>
+│   ├── eval_dashboard.py               # Metric calculation scripts <br>
+│   ├── metric_dashboard.py             # Streamlit Analytics Dashboard <br>
+│   ├── evaluator.py                    # (not usefull anymore)  <br>
+│   ├── visualizer.py                   # (not usefull anymore) <br>
+│   ├── utils.py                        # Utils methods <br>
+│   ├── test_generalization.py          # Streamlit Analytics Generalized Shape <br>
+│   └── app.py                          # Streamlit Live Simulation App <br>
+├── tests/ <br>
+│   ├── test_data.py                    # (not up-to-date) Test Data <br>
+│   └── test_model.py                   # (not up-to-date) Test Model <br>
+├── visualization/                      # (save img result) <br>
+├── Dockerfile                          # Container configuration <br>
+└── pyproject.toml                      # Project dependencies <br>
 
 
 ## Performance Results
