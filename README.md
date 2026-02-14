@@ -117,7 +117,7 @@ uv run streamlit run src/fea_gnn/test_generalization.py
 Test the model on new, custom geometries generated on the fly using the integrated GMSH logic.
 
 ```
-uv run streamlit run src/fea_gnn/app_inference.py
+uv run streamlit run src/fea_gnn/app.py
 ```
 
 
