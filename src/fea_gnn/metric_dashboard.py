@@ -135,7 +135,7 @@ def run_batch_analysis_v3(_model, _dataset, _cfg, _device, num_samples=50):
                     "Young (GPa)": E_val,
                     "Poisson": nu_val,
                     "Force (N)": force_x,
-                    "Noeuds": data.num_nodes,
+                    "Nodes": data.num_nodes,
                 }
             )
 
